@@ -1,12 +1,95 @@
-name: Publish to NPM
+name: Release and Publish
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  publish:
+  verify-and-release:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      id-token: write
+    
+    outputs:
+      should_publish: ${{ steps.verify.outputs.should_publish }}
+      tag_name: ${{ steps.get_tag.outputs.tag_name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tag verification
+          fetch-tags: true  # Explicitly fetch tags
+      
+      - name: Get tag name
+        id: get_tag
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG_NAME"
+      
+      - name: Verify tag is on main branch HEAD
+        id: verify
+        run: |
+          # Ensure we have all tags
+          git fetch --tags --force
+          
+          # Get the commit hash of the tag (dereferenced)
+          TAG_COMMIT=$(git rev-list -n 1 ${{ steps.get_tag.outputs.tag_name }})
+          echo "Tag commit: $TAG_COMMIT"
+          
+          # Get the commit hash of main branch HEAD
+          git fetch origin main
+          MAIN_HEAD=$(git rev-parse origin/main)
+          echo "Main HEAD: $MAIN_HEAD"
+          
+          # Verify tag is on main branch HEAD
+          if [ "$TAG_COMMIT" != "$MAIN_HEAD" ]; then
+            echo "❌ Error: Tag is not on the HEAD of main branch"
+            echo "should_publish=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Verify it's an annotated tag
+          # For annotated tags, the tag ref itself is different from the commit
+          TAG_TYPE=$(git cat-file -t ${{ steps.get_tag.outputs.tag_name }})
+          echo "Tag type: $TAG_TYPE"
+          
+          if [ "$TAG_TYPE" != "tag" ]; then
+            echo "❌ Error: Tag is not an annotated tag (type: $TAG_TYPE)"
+            echo "Expected 'tag' but got '$TAG_TYPE'"
+            echo "should_publish=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Tag is valid: annotated and on main branch HEAD"
+          echo "should_publish=true" >> $GITHUB_OUTPUT
+      
+      - name: Extract tag message
+        id: tag_message
+        run: |
+          # Get the tag message (for annotated tags)
+          TAG_MESSAGE=$(git tag -l --format='%(contents)' ${{ steps.get_tag.outputs.tag_name }})
+          echo "tag_message<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag_name }}
+          name: Release ${{ steps.get_tag.outputs.tag_name }}
+          body: ${{ steps.tag_message.outputs.tag_message }}
+          draft: false
+          prerelease: false
+  
+  publish:
+    needs: verify-and-release
+    runs-on: ubuntu-latest
+    if: needs.verify-and-release.outputs.should_publish == 'true'
     
     permissions:
       contents: read
@@ -31,6 +114,9 @@ jobs:
       
       - name: Run tests
         run: npm test
+      
+      - name: Build
+        run: npm run build
       
       - name: Publish to npm
         run: npm publish --access public

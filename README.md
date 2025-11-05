@@ -443,8 +443,36 @@ ai/
 │   └── types/          # TypeScript types
 ├── tests/              # Test files
 ├── bin/                # Executable entry point
+├── scripts/            # Build scripts
 └── package.json
 ```
+
+### Building for Production
+
+This project uses a dual TypeScript workflow:
+- **Development**: Uses Node's `--experimental-strip-types` (no compilation needed)
+- **Production**: Compiles TypeScript to JavaScript for NPM distribution
+
+```bash
+# Build for production
+npm run build
+
+# Clean build artifacts
+npm run clean
+```
+
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for details on the build process.
+
+### Releasing
+
+To create a new release, see the [Release Process Guide](docs/RELEASING.md).
+
+Quick summary:
+1. Update version in `package.json`
+2. Commit and push to `main`
+3. Create annotated tag: `git tag -a v0.0.4 -m "Release notes"`
+4. Push tag: `git push origin v0.0.4`
+5. GitHub Actions will automatically create a release and publish to NPM
 
 ## Contributing
 
