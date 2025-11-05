@@ -1,8 +1,26 @@
+# Source files (we publish compiled dist/)
+src/
 tests/
-coverage/
-*.test.ts
-tsconfig.json
-.cursor/
-.git/
-.github/
 
+# Build artifacts
+coverage/
+*.log
+*.tsbuildinfo
+
+# Development files
+.github/
+.cursor/
+tsconfig.json
+.gitignore
+.cursorignore
+
+# Documentation (except README which is in files array)
+docs/
+example/
+*.md
+!README.md
+
+# Project status files
+PROJECT_STATUS.md
+FINAL_SUMMARY.md
+CHANGELOG.md

@@ -1,13 +1,17 @@
 // Slash command handlers
 import chalk from 'chalk';
-import type { Session } from '../types/session.ts';
+import type { Session, Message } from '../types/session.ts';
 import type { SlashCommandResult, InteractiveOptions } from '../types/cli.ts';
 import { Storage } from './storage.ts';
+import type { DockerAIClient } from './docker-ai.ts';
+import type { ConfigManager } from './config.ts';
 
 export async function handleSlashCommand(
   input: string,
   session: Session,
-  settings: InteractiveOptions
+  settings: InteractiveOptions,
+  client?: DockerAIClient,
+  configManager?: ConfigManager
 ): Promise<SlashCommandResult> {
   const parts = input.slice(1).split(' ');
   const command = parts[0];
@@ -29,7 +33,7 @@ export async function handleSlashCommand(
       return await handleLoad(args[0]);
 
     case 'compact':
-      return await handleCompact(session);
+      return await handleCompact(session, settings, client, configManager);
 
     case 'reset':
       return await handleReset(session);
@@ -124,10 +128,103 @@ async function handleLoad(name?: string): Promise<SlashCommandResult> {
   return {};
 }
 
-async function handleCompact(session: Session): Promise<SlashCommandResult> {
-  console.log(chalk.yellow('⚠ Compact feature not yet implemented'));
-  console.log('This would summarize the conversation and create a new session.');
-  return {};
+async function handleCompact(
+  session: Session,
+  settings: InteractiveOptions,
+  client?: DockerAIClient,
+  configManager?: ConfigManager
+): Promise<SlashCommandResult> {
+  if (!client || !configManager) {
+    console.error(chalk.red('✗ Compact is only available in interactive mode'));
+    console.log('Use: ai run <agent> and then /compact');
+    return {};
+  }
+
+  if (session.messages.length === 0) {
+    console.log(chalk.yellow('⚠ No messages to compact'));
+    return {};
+  }
+
+  console.log(chalk.blue('🔄 Compacting session...'));
+  console.log(chalk.gray(`Current message count: ${session.messages.length}`));
+
+  try {
+    const storage = new Storage();
+    await storage.init();
+
+    // Load agent and profile for context
+    const currentAgentName = await configManager.getCurrentAgent();
+    const currentProfileName = await configManager.getCurrentProfile();
+    
+    const agent = currentAgentName ? await storage.loadAgent(currentAgentName) : null;
+    const profile = await storage.loadProfile(currentProfileName);
+
+    // Create a summarization prompt
+    const summaryPrompt = `Please provide a concise summary of the conversation so far. Include:
+1. The main topics discussed
+2. Key decisions or conclusions reached
+3. Any important context that should be preserved
+4. Outstanding questions or tasks
+
+Keep the summary detailed enough to maintain context for future conversation, but compact enough to reduce token usage.`;
+
+    // Prepare messages for summarization
+    const messages = [
+      {
+        role: 'system' as const,
+        content: 'You are a helpful assistant that summarizes conversations accurately and concisely.',
+      },
+      ...session.messages,
+      {
+        role: 'user' as const,
+        content: summaryPrompt,
+      }
+    ];
+
+    // Get summary from AI
+    const response = await client.chatCompletion({
+      model: settings.model,
+      messages,
+      max_tokens: Math.min(settings.maxTokens, 2048),
+      temperature: 0.3, // Lower temperature for more focused summary
+    });
+
+    const summary = response.choices[0]?.message?.content || '';
+
+    if (!summary) {
+      console.error(chalk.red('✗ Failed to generate summary'));
+      return {};
+    }
+
+    // Create new compact session with summary
+    const originalMessageCount = session.messages.length;
+    
+    // Preserve system messages, replace everything else with summary
+    const systemMessages = session.messages.filter(m => m.role === 'system');
+    const nonSystemCount = session.messages.length - systemMessages.length;
+    
+    session.messages = [
+      ...systemMessages,
+      {
+        role: 'assistant',
+        content: `[Session Summary - Original: ${nonSystemCount} messages]\n\n${summary}`,
+      }
+    ];
+
+    session.updatedAt = new Date().toISOString();
+
+    const finalCount = session.messages.length;
+    console.log(chalk.green(`✓ Session compacted: ${originalMessageCount} messages → ${finalCount} message${finalCount > 1 ? 's' : ''}`));
+    if (systemMessages.length > 0) {
+      console.log(chalk.gray(`  Preserved ${systemMessages.length} system message${systemMessages.length > 1 ? 's' : ''}`));
+    }
+    console.log(chalk.gray(`  Summary length: ${summary.length} characters`));
+
+    return { session };
+  } catch (error) {
+    console.error(chalk.red('✗ Error compacting session:'), error instanceof Error ? error.message : 'Unknown error');
+    return {};
+  }
 }
 
 async function handleReset(session: Session): Promise<SlashCommandResult> {

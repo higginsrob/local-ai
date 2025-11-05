@@ -1,4 +1,5 @@
 // CLI-related types
+import type { Session } from './session.ts';
 
 export interface RunOptions {
   ctxSize?: string;
@@ -32,5 +33,6 @@ export interface InteractiveOptions {
 export interface SlashCommandResult {
   exit?: boolean;
   settings?: Partial<InteractiveOptions>;
+  session?: Session;
 }
 

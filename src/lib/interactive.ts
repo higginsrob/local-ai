@@ -18,6 +18,7 @@ export async function startInteractive(
   session: Session
 ): Promise<void> {
   console.log(chalk.bold(`\n💬 Interactive mode with ${model}`));
+  console.log(chalk.bold(JSON.stringify(options, null, 2)));
   console.log(chalk.gray('Type /help for commands, /quit to exit, or press Ctrl+C\n'));
 
   const storage = new Storage();
@@ -71,7 +72,7 @@ export async function startInteractive(
 
       // Handle slash commands
       if (input.startsWith('/')) {
-        const result = await handleSlashCommand(input, currentSession, settings);
+        const result = await handleSlashCommand(input, currentSession, settings, client, configManager);
         
         if (result.exit) {
           break;
@@ -79,6 +80,10 @@ export async function startInteractive(
         
         if (result.settings) {
           settings = { ...settings, ...result.settings };
+        }
+        
+        if (result.session) {
+          currentSession = result.session;
         }
         
         continue;

@@ -4,7 +4,9 @@ import prompts from 'prompts';
 import { spawn } from 'child_process';
 import { Storage } from '../lib/storage.ts';
 import { ConfigManager } from '../lib/config.ts';
+import { DockerAIClient } from '../lib/docker-ai.ts';
 import type { Agent } from '../types/agent.ts';
+import type { Session, Message } from '../types/session.ts';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -38,6 +40,8 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     await importAgent(storage, args[0]);
   } else if (subcommand === 'export') {
     await exportAgent(storage, args[0], args[1]);
+  } else if (subcommand === 'compact') {
+    await compactSession(storage, configManager, args[0]);
   } else {
     console.error(chalk.red(`Unknown subcommand: ${subcommand}`));
     console.log('\nAvailable subcommands:');
@@ -47,6 +51,7 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     console.log('  edit <name>                                - Edit agent in default editor');
     console.log('  remove <name>                              - Remove agent');
     console.log('  install                                    - Install agent executables to PATH');
+    console.log('  compact <session-id>                       - Compact a session by summarizing');
     console.log('  enable-tool <tool-name>                    - Enable tool');
     console.log('  disable-tool <tool-name>                   - Disable tool');
     console.log('  add-attribute <name> <value>               - Add attribute');
@@ -508,5 +513,117 @@ async function openInEditor(filePath: string): Promise<void> {
       reject(error);
     });
   });
+}
+
+async function compactSession(
+  storage: Storage,
+  configManager: ConfigManager,
+  sessionId?: string
+): Promise<void> {
+  if (!sessionId) {
+    console.error(chalk.red('Session ID is required'));
+    console.log('Usage: ai agent compact <session-id>');
+    process.exit(1);
+  }
+
+  console.log(chalk.bold(`\n🔄 Compacting Session: ${sessionId}\n`));
+
+  try {
+    // Load the session
+    const session = await storage.loadSession(sessionId);
+    
+    if (session.messages.length === 0) {
+      console.log(chalk.yellow('⚠ No messages to compact'));
+      return;
+    }
+
+    console.log(chalk.gray(`Current message count: ${session.messages.length}`));
+
+    // Get endpoint and create client
+    const endpoint = await configManager.getLlamaCppEndpoint();
+    const client = new DockerAIClient(endpoint);
+
+    // Load agent for model info
+    const currentAgentName = await configManager.getCurrentAgent();
+    const agent = currentAgentName ? await storage.loadAgent(currentAgentName) : null;
+    
+    const model = agent?.model || 'llama3';
+
+    // Create a summarization prompt
+    const summaryPrompt = `Please provide a concise summary of the conversation so far. Include:
+1. The main topics discussed
+2. Key decisions or conclusions reached
+3. Any important context that should be preserved
+4. Outstanding questions or tasks
+
+Keep the summary detailed enough to maintain context for future conversation, but compact enough to reduce token usage.`;
+
+    // Prepare messages for summarization
+    const messages = [
+      {
+        role: 'system' as const,
+        content: 'You are a helpful assistant that summarizes conversations accurately and concisely.',
+      },
+      ...session.messages,
+      {
+        role: 'user' as const,
+        content: summaryPrompt,
+      }
+    ];
+
+    console.log(chalk.blue('Generating summary...'));
+
+    // Get summary from AI
+    const response = await client.chatCompletion({
+      model,
+      messages,
+      max_tokens: 2048,
+      temperature: 0.3, // Lower temperature for more focused summary
+    });
+
+    const summary = response.choices[0]?.message?.content || '';
+
+    if (!summary) {
+      console.error(chalk.red('✗ Failed to generate summary'));
+      process.exit(1);
+    }
+
+    // Create new compact session with summary
+    const originalMessageCount = session.messages.length;
+    
+    // Preserve system messages, replace everything else with summary
+    const systemMessages = session.messages.filter(m => m.role === 'system');
+    const nonSystemCount = session.messages.length - systemMessages.length;
+    
+    session.messages = [
+      ...systemMessages,
+      {
+        role: 'assistant',
+        content: `[Session Summary - Original: ${nonSystemCount} messages]\n\n${summary}`,
+      }
+    ];
+
+    session.updatedAt = new Date().toISOString();
+
+    // Save the compacted session
+    await storage.saveSession(session);
+
+    console.log(chalk.green(`\n✓ Session compacted successfully`));
+    const finalCount = session.messages.length;
+    console.log(chalk.gray(`  ${originalMessageCount} messages → ${finalCount} message${finalCount > 1 ? 's' : ''}`));
+    if (systemMessages.length > 0) {
+      console.log(chalk.gray(`  Preserved ${systemMessages.length} system message${systemMessages.length > 1 ? 's' : ''}`));
+    }
+    console.log(chalk.gray(`  Summary length: ${summary.length} characters`));
+    console.log();
+
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('ENOENT')) {
+      console.error(chalk.red(`✗ Session not found: ${sessionId}`));
+    } else {
+      console.error(chalk.red('✗ Error compacting session:'), error instanceof Error ? error.message : 'Unknown error');
+    }
+    process.exit(1);
+  }
 }
 
