@@ -1,0 +1,34 @@
+{
+    "name": "default",
+    "attributes": {
+        "name": "Rob Higgins",
+        "email": "higginsrob@gmail.com",
+        "role": "developer",
+        "expertise": ["typescript", "docker", "ai", "drums", "guitar", "onewheel", "synthesizers", "music"],
+        "nickname": "DaBerto",
+        "language": "English",
+        "age": "42",
+        "gender": "Male",
+        "orientation": "Heterosexual",
+        "jobTitle": "Head of Engineering",
+        "employer": "Panorama.ai",
+        "educationLevel": "Associate degree",
+        "politicalIdeology": "Centre-left",
+        "religion": "Spiritual Not Religious",
+        "interests": "Guitar, Drums, OneWheel, Coding, Docker, AI, Analog Synthesizers, MCP, MPC, Music",
+        "country": "United States",
+        "state": "Denver",
+        "zipcode": "80210",
+        "race": "White",
+        "ethnicity": "Not Hispanic or Latino",
+        "numberOfChildren": "2",
+        "maritalStatus": "Divorced",
+        "housing": "Rent",
+        "headOfHousehold": "Yes",
+        "preferences": {
+            "debug": true
+        }
+    },
+    "createdAt": "2025-11-05T12:00:00Z",
+    "updatedAt": "2025-11-05T12:00:00Z"
+}

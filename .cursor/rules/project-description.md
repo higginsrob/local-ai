@@ -20,20 +20,19 @@ The purpose of this project is to build a CLI tool that makes managing a fleet o
 
 ```bash
 ai status       # check installation and validate dependencies
-ai run          # run interactive chat with model
+ai run          # run interactive chat with agent or model
 ai profile      # configure user profile settings and attributes
-ai agent        # manage agent models, attributes, configurations, and tools
+ai agent        # manage agent models, attributes, configurations, and tools (includes install)
 ai session      # manage agent chat history and attributes
-ai install      # installs our agent executables bin folder into users $PATH
 ```
 
-### Usage: `ai run [--options] <model> <prompt-text> [<more-prompt-text>...]`
+### Usage: `ai run [--options] <agent|model> <prompt-text> [<more-prompt-text>...]`
 
-The `run` command calls an ai model with a text prompt as as single executable command. This command is similar to `docker model run` but uses HTTP calls into llama.cpp instead, for better configuration, observability and control.  We've enhanced the basic docker model calling capabilities with RAG, tool calling, memory, sessions, observability, feature flags (slash commands etc..), and guardrails.  We will implement these features as MCP tool calls whenever possible, so that our main executable is as light and simple as possible, whose main responsibility is a steaming orchestrator, tool call manager, and conversation loop controller.
+The `run` command calls an AI agent or model with a text prompt. When an agent name is provided, it loads the full agent configuration (model, system prompt, parameters, tools, MCP servers). When a model name is provided, it uses default settings. This command uses HTTP calls into llama.cpp for better configuration, observability and control. We've enhanced the basic docker model calling capabilities with RAG, tool calling, memory, sessions, observability, feature flags (slash commands etc..), and guardrails. We implement these features as MCP tool calls whenever possible, so that our main executable is as light and simple as possible, whose main responsibility is a streaming orchestrator, tool call manager, and conversation loop controller.
 
-### Usage: `ai run [--options] <model>`
+### Usage: `ai run [--options] <agent|model>`
 
-This runs an interactive prompt session, allowing the user to continually call our `ai run` subcommand in a conversation loop. This interactive shell will also allow "slash commands" that can control settings during runtime
+This runs an interactive prompt session, allowing the user to continually interact in a conversation loop. This interactive shell also allows "slash commands" that can control settings during runtime
 
 OPTIONS
 
@@ -70,7 +69,7 @@ SLASH COMMANDS (executed by interactive loop)
 - `/tool-call-mode <mode>` - sets tool call mode for future calls
 - `/thinking <boolean>` - sets thinking mode for future calls
 - `/debug <boolean>` - sets debug mode for future calls
-- `/quit`, `/q`, `/exit` `/e` - exit the interactive session
+- `/quit`, `/q`, `/exit` `/e`, `/x` - exit the interactive session
 
 ### Usage: `ai profile [subcommand]`
 
@@ -79,6 +78,7 @@ SUBCOMMANDS:
 - `show`                                    # show all user profile information
 - `new <name>`                              # create a new profile and select that profile
 - `select <name>`                           # select a different user profile
+- `edit [name]`                             # edit profile in default editor (current if no name given)
 - `add <attribute-name> <attribute-value>`  # add a user attribute to the current profile
 - `remove <attribute-name>`                 # remove a user attribute from the current profile 
 - `import`                                  # creates a user profile from a JSON file
@@ -91,6 +91,7 @@ SUBCOMMANDS:
 - `ls`                                                  # list all agent profiles
 - `show <name>`                                         # show agent profile information
 - `new <name>`                                          # create a new agent executable from an interactive form
+- `edit <name>`                                         # edit agent in default editor
 - `remove <name>`                                       # delete an agent executable
 - `enable-tool <tool-name> <tool-value>`                # enables an mcp tool to the current profile
 - `disable-tool <tool-name>`                            # disables an mcp tool from the current profile
@@ -98,6 +99,7 @@ SUBCOMMANDS:
 - `remove-attribute <attribute-name>`                   # remove an agent attribute from the current profile
 - `import`                                              # creates an agent from a JSON file
 - `export`                                              # exports agent as a JSON file
+- `install`                                             # installs all agents as executables to PATH
 
 ### Usage: `ai session [subcommand]`
 
@@ -110,5 +112,3 @@ SUBCOMMANDS:
 - `reset`                                               # deletes all sessions
 - `import`                                              # restores session from a JSON file
 - `export`                                              # exports session to a JSON file
-
-### Usage: `ai install`                                  # installs our agent executables bin folder into users $PATH

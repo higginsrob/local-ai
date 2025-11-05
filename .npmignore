@@ -1,0 +1,8 @@
+tests/
+coverage/
+*.test.ts
+tsconfig.json
+.cursor/
+.git/
+.github/
+

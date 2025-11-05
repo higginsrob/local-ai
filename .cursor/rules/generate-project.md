@@ -192,16 +192,17 @@ The application stores all data in `~/.ai/` with the following structure:
 
 ### HTTP Completions Endpoint
 
-Docker AI Models exposes llama.cpp via HTTP on `http://localhost:8080` (default) when a model is running.
+Docker AI Models exposes llama.cpp via HTTP on `http://localhost:12434` (default) when models are pulled.
 
-**Starting a Model:**
+**Getting Models:**
 ```bash
-docker run -d --name llama3 -p 8080:8080 ollama/ollama:llama3
+docker model pull llama3
+docker model ls
 ```
 
 **Completion Request:**
 ```typescript
-POST http://localhost:8080/v1/completions
+POST http://localhost:12434/engines/llama.cpp/v1/completions
 Content-Type: application/json
 
 {
@@ -225,7 +226,7 @@ data: [DONE]
 ### Chat Completions Endpoint
 
 ```typescript
-POST http://localhost:8080/v1/chat/completions
+POST http://localhost:12434/engines/llama.cpp/v1/chat/completions
 Content-Type: application/json
 
 {
