@@ -1,6 +1,6 @@
 {
   "name": "@higginsrob/local-ai",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Local AI Agent Assistants Manager using Docker AI Models and MCP tools",
   "type": "module",
   "bin": {
