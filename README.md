@@ -182,9 +182,21 @@ ai agent edit coder
 # Remove agent
 ai agent remove coder
 
-# Add custom attributes
-ai agent add-attribute specialty "code-review"
-ai agent remove-attribute specialty
+# Manage personality traits
+ai agent traits coder        # Multi-select all traits
+ai agent trait-add coder     # Add one trait with autocomplete
+ai agent trait-remove coder  # Remove one trait with autocomplete
+
+# Manage expertise
+ai agent expertise-add coder    # Add area of expertise (text input)
+ai agent expertise-remove coder # Remove area of expertise
+
+# Manage custom attributes
+ai agent attribute-add coder    # Add custom key-value attribute
+ai agent attribute-remove coder # Remove custom attribute
+
+# Configure agent settings
+ai agent configure coder     # Update model, prompts, and parameters
 
 # Import/Export
 ai agent export coder ./coder-agent.json

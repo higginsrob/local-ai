@@ -1,5 +1,6 @@
 // Slash command handlers
 import chalk from 'chalk';
+import prompts from 'prompts';
 import type { Session, Message } from '../types/session.ts';
 import type { SlashCommandResult, InteractiveOptions } from '../types/cli.ts';
 import { Storage } from './storage.ts';
@@ -7,6 +8,7 @@ import type { DockerAIClient } from './docker-ai.ts';
 import type { ConfigManager } from './config.ts';
 import { StreamHandler } from './stream-handler.ts';
 import { buildSystemPrompt } from './prompt-builder.ts';
+import type { MeetingSession } from '../types/meeting.ts';
 
 // Helper to setup stdin control with abort support
 function setupStdinAbort(): { abortController: AbortController; cleanup: () => void; isAborted: () => boolean } {
@@ -59,19 +61,17 @@ export async function handleSlashCommand(
 
     case 'clear':
     case 'c':
-      console.clear();
-      return {};
+      return await handleReset(session, settings, client, configManager);
 
     case 'load':
     case 'l':
       return await handleLoad(args[0]);
 
+    case 'restore':
+      return await handleRestore(args[0], session, settings, client, configManager);
+
     case 'compact':
       return await handleCompact(session, settings, client, configManager);
-
-    case 'reset':
-    case 'r':
-      return await handleReset(session, settings, client, configManager);
 
     case 'ctx-size':
     case 'ctx':
@@ -136,15 +136,15 @@ export async function handleSlashCommand(
 function displayHelp(): void {
   console.log(chalk.bold('\n📚 Available Slash Commands\n'));
   console.log('  /help, /h                  - Show this help');
-  console.log('  /clear, /c                 - Clear terminal screen');
+  console.log('  /clear, /c                 - Clear chat history and screen');
   console.log('  /info, /i                  - Show current agent settings');
   console.log('  /show                      - Show agent config and system prompt');
   console.log('  /status, /s                - Show performance and context usage');
   console.log('  /agent <name>              - Switch to a different agent');
-  console.log('  /meeting <a1> <a2> [...]   - Start a meeting with agents');
+  console.log('  /meeting <room> [agents]   - Join/create a meeting room');
   console.log('  /load <name>               - Load a session');
+  console.log('  /restore <name>            - Restore an archived chat');
   console.log('  /compact                   - Summarize and compact session');
-  console.log('  /reset, /r                 - Reset chat history');
   console.log('  /history pop [count]       - Remove and display last messages');
   console.log('  /ctx-size <size>           - Set context window size');
   console.log('  /max-size <size>           - Set max response size');
@@ -179,6 +179,123 @@ async function handleLoad(name?: string): Promise<SlashCommandResult> {
   }
   
   return {};
+}
+
+async function handleRestore(
+  archiveName: string | undefined,
+  session: Session,
+  settings: InteractiveOptions,
+  client?: DockerAIClient,
+  configManager?: ConfigManager
+): Promise<SlashCommandResult> {
+  const storage = new Storage();
+  await storage.init();
+
+  if (!archiveName) {
+    // List available archives
+    const archives = await storage.listArchives();
+    if (archives.length === 0) {
+      console.log(chalk.yellow('\n⚠ No archived chats found'));
+      console.log(chalk.gray('Use /clear to save your current chat to the archive\n'));
+      return {};
+    }
+
+    console.log(chalk.bold('\n📦 Archived Chats\n'));
+    for (const name of archives) {
+      try {
+        const archived = await storage.loadArchive(name);
+        const isMeeting = 'roomName' in archived;
+        const messageCount = isMeeting 
+          ? (archived as MeetingSession).sharedMessages.length
+          : (archived as Session).messages.length;
+        
+        console.log(`  ${chalk.cyan(name)}`);
+        console.log(`    ${chalk.gray(`Type: ${isMeeting ? 'Meeting Room' : 'Agent Chat'}`)}`);
+        console.log(`    ${chalk.gray(`Messages: ${messageCount}`)}`);
+        console.log(`    ${chalk.gray(`Updated: ${archived.updatedAt}`)}`);
+      } catch {
+        console.log(`  ${chalk.cyan(name)}`);
+      }
+    }
+    console.log();
+    console.log(chalk.gray('Usage: /restore <archive-name>'));
+    console.log();
+    return {};
+  }
+
+  try {
+    // Load the archive
+    const archived = await storage.loadArchive(archiveName);
+    const isMeeting = 'roomName' in archived;
+
+    // Ask if user wants to save current chat
+    if (session.messages.length > 0) {
+      const saveResponse = await prompts({
+        type: 'text',
+        name: 'save',
+        message: chalk.yellow('Save current chat before restoring? (y/yes to save)'),
+        initial: 'n'
+      });
+
+      if (saveResponse.save && (saveResponse.save.toLowerCase() === 'y' || saveResponse.save.toLowerCase() === 'yes')) {
+        const nameResponse = await prompts({
+          type: 'text',
+          name: 'name',
+          message: chalk.cyan('Enter a name for current chat:'),
+          validate: (value: string) => value.trim().length > 0 ? true : 'Name cannot be empty'
+        });
+
+        if (nameResponse.name) {
+          try {
+            await storage.saveArchive(nameResponse.name, session);
+            console.log(chalk.green(`✓ Current chat saved to archive: ${nameResponse.name}`));
+          } catch (error) {
+            console.error(chalk.red('✗ Failed to save current chat:'), error instanceof Error ? error.message : 'Unknown error');
+          }
+        }
+      }
+    }
+
+    if (isMeeting) {
+      // It's a meeting room - switch to meeting mode
+      const meetingSession = archived as MeetingSession;
+      console.log(chalk.green(`\n✓ Restoring meeting room: ${meetingSession.roomName || meetingSession.id}`));
+      console.log(chalk.gray(`  Participants: ${meetingSession.agentNames.join(', ')}`));
+      console.log(chalk.gray(`  Messages: ${meetingSession.sharedMessages.length}`));
+      console.log(chalk.gray('\nSwitching to meeting mode...\n'));
+      
+      // Save the restored meeting session
+      await storage.saveMeetingSession(meetingSession);
+      
+      // Return switch to meeting
+      return { switchToMeeting: [meetingSession.roomName || meetingSession.id] };
+    } else {
+      // It's an agent chat - restore in current session
+      const agentSession = archived as Session;
+      console.log(chalk.green(`\n✓ Restoring agent chat: ${agentSession.agentName || 'default'}`));
+      console.log(chalk.gray(`  Messages: ${agentSession.messages.length}`));
+      
+      // If agent is different, switch to that agent
+      if (agentSession.agentName && agentSession.agentName !== session.agentName) {
+        console.log(chalk.gray(`  Switching to agent: ${agentSession.agentName}\n`));
+        return { switchToAgent: agentSession.agentName };
+      } else {
+        // Same agent, just restore messages
+        session.messages = agentSession.messages;
+        session.metadata = agentSession.metadata;
+        session.updatedAt = new Date().toISOString();
+        await storage.saveSession(session);
+        
+        console.log(chalk.green('\n✓ Chat history restored'));
+        console.log();
+        return { session };
+      }
+    }
+  } catch (error) {
+    console.error(chalk.red(`\n✗ Archive not found: ${archiveName}`));
+    console.log(chalk.gray('Use /restore to see available archives\n'));
+    return {};
+  }
 }
 
 async function handleCompact(
@@ -294,6 +411,41 @@ async function handleReset(
   client?: DockerAIClient,
   configManager?: ConfigManager
 ): Promise<SlashCommandResult> {
+  // Check if there's any history to save
+  if (session.messages.length > 0) {
+    // Ask if user wants to save
+    const saveResponse = await prompts({
+      type: 'text',
+      name: 'save',
+      message: chalk.yellow('Save chat history before clearing? (y/yes to save)'),
+      initial: 'n'
+    });
+
+    if (saveResponse.save && (saveResponse.save.toLowerCase() === 'y' || saveResponse.save.toLowerCase() === 'yes')) {
+      // Ask for chat name
+      const nameResponse = await prompts({
+        type: 'text',
+        name: 'name',
+        message: chalk.cyan('Enter a name for this chat:'),
+        validate: (value: string) => value.trim().length > 0 ? true : 'Name cannot be empty'
+      });
+
+      if (nameResponse.name) {
+        const storage = new Storage();
+        await storage.init();
+        
+        try {
+          // Save to archive
+          await storage.saveArchive(nameResponse.name, session);
+          console.log(chalk.green(`✓ Chat saved to archive: ${nameResponse.name}`));
+          console.log(chalk.gray(`  Location: ~/.ai/archive/${nameResponse.name}.json`));
+        } catch (error) {
+          console.error(chalk.red('✗ Failed to save chat:'), error instanceof Error ? error.message : 'Unknown error');
+        }
+      }
+    }
+  }
+
   // Clear the screen
   console.clear();
   
@@ -303,7 +455,7 @@ async function handleReset(
   session.metadata.toolCalls = 0;
   session.metadata.lastRequestStats = undefined;
   
-  console.log(chalk.green('✓ Reset chat history'));
+  console.log(chalk.green('✓ Cleared chat history'));
   
   // Auto-save the reset session
   const storage = new Storage();
@@ -853,7 +1005,7 @@ async function handleAgentSwitch(agentName?: string): Promise<SlashCommandResult
     await storage.loadAgent(agentName);
     console.log(chalk.green(`\n✓ Switching to agent: ${agentName}`));
     console.log(chalk.gray('Loading agent session...\n'));
-    return { switchToAgent: agentName, exit: true };
+    return { switchToAgent: agentName }; // No exit - we handle switch in-place
   } catch {
     console.error(chalk.red(`\n✗ Agent not found: ${agentName}`));
     console.log(chalk.gray('Use /agent to see available agents\n'));
@@ -861,16 +1013,25 @@ async function handleAgentSwitch(agentName?: string): Promise<SlashCommandResult
   }
 }
 
-function handleMeetingSwitch(agentNames: string[]): SlashCommandResult {
-  if (!agentNames || agentNames.length < 2) {
-    console.error(chalk.red('\nAt least 2 agents are required for a meeting'));
-    console.log(chalk.gray('Usage: /meeting <agent1> <agent2> [<agent3>...]'));
-    console.log(chalk.gray('Example: /meeting ceo cto cfo\n'));
+function handleMeetingSwitch(args: string[]): SlashCommandResult {
+  if (!args || args.length === 0) {
+    console.error(chalk.red('\nRoom name is required'));
+    console.log(chalk.gray('Usage: /meeting <room-name> [<agent1> <agent2> ...]'));
+    console.log(chalk.gray('\nExamples:'));
+    console.log(chalk.gray('  /meeting executive-team ceo cto cfo  # Create new room'));
+    console.log(chalk.gray('  /meeting executive-team              # Resume existing room\n'));
     return {};
   }
 
-  console.log(chalk.green(`\n✓ Starting meeting with: ${agentNames.join(', ')}`));
-  console.log(chalk.gray('Initializing meeting...\n'));
-  return { switchToMeeting: agentNames, exit: true };
+  const roomName = args[0];
+  const agentNames = args.slice(1);
+  
+  if (agentNames.length > 0) {
+    console.log(chalk.green(`\n✓ Joining room: ${roomName} with agents: ${agentNames.join(', ')}`));
+  } else {
+    console.log(chalk.green(`\n✓ Joining room: ${roomName}`));
+  }
+  console.log(chalk.gray('Initializing room...\n'));
+  return { switchToMeeting: args }; // Pass all args (room name + agents)
 }
 

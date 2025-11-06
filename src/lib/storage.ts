@@ -33,6 +33,7 @@ export class Storage {
     await fs.mkdir(path.join(this.baseDir, 'sessions'), { recursive: true });
     await fs.mkdir(path.join(this.baseDir, 'meetings'), { recursive: true });
     await fs.mkdir(path.join(this.baseDir, 'bin'), { recursive: true });
+    await fs.mkdir(path.join(this.baseDir, 'archive'), { recursive: true });
 
     // Create default config if it doesn't exist
     const configPath = path.join(this.baseDir, 'config.json');
@@ -291,6 +292,38 @@ export class Storage {
     } catch {
       return [];
     }
+  }
+
+  // Archive operations (for saving/restoring chat history)
+  async saveArchive(name: string, data: Session | MeetingSession): Promise<void> {
+    const sanitizedName = this.sanitizeName(name);
+    const archivePath = path.join(this.baseDir, 'archive', `${sanitizedName}.json`);
+    await fs.writeFile(archivePath, JSON.stringify(data, null, 2));
+  }
+
+  async loadArchive(name: string): Promise<Session | MeetingSession> {
+    const sanitizedName = this.sanitizeName(name);
+    const archivePath = path.join(this.baseDir, 'archive', `${sanitizedName}.json`);
+    const data = await fs.readFile(archivePath, 'utf-8');
+    return JSON.parse(data);
+  }
+
+  async listArchives(): Promise<string[]> {
+    const archiveDir = path.join(this.baseDir, 'archive');
+    try {
+      const files = await fs.readdir(archiveDir);
+      return files
+        .filter(f => f.endsWith('.json'))
+        .map(f => this.unsanitizeName(f.replace('.json', '')));
+    } catch {
+      return [];
+    }
+  }
+
+  async deleteArchive(name: string): Promise<void> {
+    const sanitizedName = this.sanitizeName(name);
+    const archivePath = path.join(this.baseDir, 'archive', `${sanitizedName}.json`);
+    await fs.unlink(archivePath);
   }
 
   // Utility

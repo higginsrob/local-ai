@@ -33,10 +33,12 @@ ai agent import ./my-agent.json
 ai agent edit coder
 ```
 
-**Option B: Add attributes individually**
+**Option B: Configure personality traits interactively**
 ```bash
-ai agent add-attribute specialty "code-review"
-ai agent add-attribute languages '["typescript","python","rust"]'
+# Launch interactive multi-select to choose personality traits
+ai agent traits coder
+
+# Enable tools for the agent
 ai agent enable-tool filesystem
 ai agent enable-tool search
 ```

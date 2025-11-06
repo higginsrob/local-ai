@@ -191,17 +191,59 @@ agent
   });
 
 agent
-  .command('add-attribute <name> <value...>')
-  .description('Add attribute to current agent')
-  .action(async (name: string, value: string[]) => {
-    await agentCommand('add-attribute', [name, value.join(' ')]);
+  .command('traits <name>')
+  .description('Manage agent personality traits')
+  .action(async (name: string) => {
+    await agentCommand('traits', [name]);
   });
 
 agent
-  .command('remove-attribute <name>')
-  .description('Remove attribute from current agent')
+  .command('trait-add <name>')
+  .description('Add a personality trait')
   .action(async (name: string) => {
-    await agentCommand('remove-attribute', [name]);
+    await agentCommand('trait-add', [name]);
+  });
+
+agent
+  .command('trait-remove <name>')
+  .description('Remove a personality trait')
+  .action(async (name: string) => {
+    await agentCommand('trait-remove', [name]);
+  });
+
+agent
+  .command('expertise-add <name>')
+  .description('Add an area of expertise')
+  .action(async (name: string) => {
+    await agentCommand('expertise-add', [name]);
+  });
+
+agent
+  .command('expertise-remove <name>')
+  .description('Remove an area of expertise')
+  .action(async (name: string) => {
+    await agentCommand('expertise-remove', [name]);
+  });
+
+agent
+  .command('attribute-add <name>')
+  .description('Add a custom attribute')
+  .action(async (name: string) => {
+    await agentCommand('attribute-add', [name]);
+  });
+
+agent
+  .command('attribute-remove <name>')
+  .description('Remove a custom attribute')
+  .action(async (name: string) => {
+    await agentCommand('attribute-remove', [name]);
+  });
+
+agent
+  .command('configure <name>')
+  .description('Configure agent settings')
+  .action(async (name: string) => {
+    await agentCommand('configure', [name]);
   });
 
 agent

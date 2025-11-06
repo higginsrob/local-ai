@@ -2,7 +2,8 @@
 
 export interface MeetingSession {
   id: string;
-  agentNames: string[];
+  roomName: string; // Name of the meeting room
+  agentNames: string[]; // Current agents in the room (can change dynamically)
   profileName: string;
   sharedMessages: MeetingMessage[];
   bufferedResponses: BufferedResponse[];

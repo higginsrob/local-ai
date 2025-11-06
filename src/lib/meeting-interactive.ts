@@ -42,6 +42,100 @@ export function getAgentColor(agentName: string): ChalkInstance {
   return agentColorMap.get(key)!;
 }
 
+/**
+ * Create a color-aware stream handler that detects [agent-name]: prefixes
+ * and applies appropriate colors
+ */
+export function createColorAwareStreamHandler(
+  defaultAgentName: string,
+  allAgents: Agent[],
+  onComplete: (fullMessage: string) => void
+): StreamHandler {
+  let assistantMessage = '';
+  let buffer = '';
+  let currentColor = getAgentColor(defaultAgentName);
+  let atLineStart = true;
+  
+  // Create map of agent names for quick lookup
+  const agentNames = new Set(allAgents.map(a => a.name.toLowerCase()));
+  agentNames.add('user'); // Also recognize [User]:
+  
+  return new StreamHandler({
+    onToken: (token: string) => {
+      assistantMessage += token;
+      buffer += token;
+      
+      // Process the buffer character by character
+      while (buffer.length > 0) {
+        // Check if we're at line start and seeing '['
+        if (atLineStart && buffer.startsWith('[')) {
+          // Look for complete [agent-name]: or [@agent-name] patterns
+          // Matches: [agent]:, [agent]: , [@agent], [@agent]:
+          const match = buffer.match(/^\[@?([^\]]+)\]:?\s*/);
+          if (match) {
+            // Found complete pattern
+            let capturedName = match[1]; // Preserve original case
+            const fullMatch = match[0];
+            
+            // Remove @ prefix if present (from [@agent] format)
+            if (capturedName.startsWith('@')) {
+              capturedName = capturedName.slice(1);
+            }
+            
+            // Check if this is a known agent (case-insensitive)
+            const agentNameLower = capturedName.toLowerCase();
+            if (agentNames.has(agentNameLower)) {
+              // Switch to this agent's color
+              currentColor = agentNameLower === 'user' ? chalk.blue : getAgentColor(capturedName);
+            }
+            
+            // Output the bracketed part and consume from buffer
+            process.stdout.write(currentColor(fullMatch));
+            buffer = buffer.slice(fullMatch.length);
+            atLineStart = false;
+            continue;
+          } else {
+            // Incomplete pattern - check if we need more tokens
+            const partialMatch = buffer.match(/^\[@?[^\]]*$/);
+            if (partialMatch && buffer.length < 30) {
+              // Looks like start of a pattern, wait for more tokens
+              break;
+            } else {
+              // Not a valid pattern, output the '['
+              process.stdout.write(currentColor('['));
+              buffer = buffer.slice(1);
+              atLineStart = false;
+              continue;
+            }
+          }
+        }
+        
+        // Check for newline
+        if (buffer.startsWith('\n')) {
+          process.stdout.write('\n');
+          buffer = buffer.slice(1);
+          atLineStart = true;
+          continue;
+        }
+        
+        // Output regular character
+        process.stdout.write(currentColor(buffer[0]));
+        buffer = buffer.slice(1);
+        atLineStart = false;
+      }
+    },
+    onDone: () => {
+      // Flush any remaining buffer
+      if (buffer.length > 0) {
+        process.stdout.write(currentColor(buffer));
+      }
+      process.stdout.write('\n');
+      onComplete(assistantMessage);
+    },
+    onMetrics: () => {},
+  });
+}
+
 export async function startMeetingInteractive(
   agents: Agent[],
   meetingSession: MeetingSession,
@@ -97,32 +191,29 @@ export async function startMeetingInteractive(
       if (input.startsWith('/')) {
         const result = await handleMeetingSlashCommand(input, currentSession, agents, client, configManager, storage);
         
-        if (result.exit) {
-          break;
-        }
-        
-        if (result.session) {
-          currentSession = result.session;
-        }
-        
-        // Handle agent switching
+        // Handle agent switching BEFORE checking exit
         if (result.switchToAgent) {
-          // Clean up meeting without goodbye message
-          shouldExit = true;
-          
           // Unlock all meeting agents
           for (const agent of agents) {
             await storage.unlockAgent(agent.name);
           }
           process.off('SIGINT', handleSigInt);
           
-          // Clear agent list to prevent double cleanup
-          agents.length = 0;
-          
-          // Load new agent and start new session
+          // Start single agent session - this will take over completely
           const { runCommand } = await import('../commands/run.js');
           await runCommand(result.switchToAgent);
-          return; // Exit after new session ends
+          
+          // Agent session ended, exit the program
+          process.exit(0);
+        }
+        
+        // Check other result flags (after handling switches)
+        if (result.exit) {
+          break;
+        }
+        
+        if (result.session) {
+          currentSession = result.session;
         }
         
         continue;
@@ -306,6 +397,36 @@ export function buildMeetingContext(currentAgent: Agent, allAgents: Agent[], ses
   context += 'responses so the user can review and decide what to do next.\n\n';
   
   context += '─────────────────────────────────────────────────────────\n';
+  context += 'RESPONSE FORMATTING (CRITICAL):\n';
+  context += '─────────────────────────────────────────────────────────\n\n';
+  
+  context += '1. HOW TO SPEAK AS YOURSELF:\n';
+  context += '   - Speak directly in your own voice (no prefix needed)\n';
+  context += '   - Use @mentions to address others\n';
+  context += '   Example: "I think we should explore cloud options. @cfo what\'s the budget?"\n\n';
+  
+  context += '2. IF YOU WANT TO PRESENT MULTIPLE PERSPECTIVES:\n';
+  context += '   - Each perspective MUST start on a new line with format: [agent-name]:\n';
+  context += '   - Use lowercase agent name in brackets followed by colon\n';
+  context += '   - This helps with visual formatting and readability\n\n';
+  
+  context += '   Example format:\n';
+  context += '   [ceo]: I think we should move forward with this.\n\n';
+  context += '   [cfo]: The budget looks good, but we need to watch costs.\n\n';
+  context += '   [cto]: From a technical perspective, this is feasible.\n\n';
+  
+  context += '3. ABSOLUTE PROHIBITIONS:\n';
+  context += '   🚫 NEVER speak as @user or [User]: - THE USER IS A REAL PERSON\n';
+  context += '   🚫 NEVER put words in the user\'s mouth or role-play their responses\n';
+  context += '   🚫 NEVER write things like "[User]: <something>" or "@user <their response>"\n';
+  context += '   🚫 The user will type their own responses - you cannot speak for them\n\n';
+  
+  context += '   You can:\n';
+  context += '   ✓ Address the user with @user (asking them questions)\n';
+  context += '   ✓ Quote what the user previously said\n';
+  context += '   ✗ Cannot: Invent or role-play what the user might say\n\n';
+  
+  context += '─────────────────────────────────────────────────────────\n';
   context += 'BEST PRACTICES:\n';
   context += '─────────────────────────────────────────────────────────\n\n';
   
@@ -346,6 +467,12 @@ async function handleMeetingMessage(
   configManager: ConfigManager,
   chainDepth: number = 0
 ): Promise<void> {
+  // Clear buffered responses when user makes a new prompt (only at depth 0)
+  if (chainDepth === 0 && session.bufferedResponses.length > 0) {
+    console.log(chalk.gray(`\n(Clearing ${session.bufferedResponses.length} buffered response${session.bufferedResponses.length > 1 ? 's' : ''})\n`));
+    session.bufferedResponses = [];
+  }
+
   // Add user message to session
   const userMessage: MeetingMessage = {
     role: 'user',
@@ -568,7 +695,7 @@ async function getAgentResponse(
   
   for (const m of session.sharedMessages) {
     const currentRole = m.role === 'user' ? 'user' : 'assistant';
-    const content = m.agentName ? `[${m.agentName}]: ${m.content}` : m.content;
+    const content = m.agentName ? `[${m.agentName}]: ${m.content}` : `[User]: ${m.content}`;
     
     if (lastRole === currentRole) {
       // Same role as previous - accumulate
@@ -674,7 +801,7 @@ async function streamAgentResponse(
   
   for (const m of session.sharedMessages) {
     const currentRole = m.role === 'user' ? 'user' : 'assistant';
-    const content = m.agentName ? `[${m.agentName}]: ${m.content}` : m.content;
+    const content = m.agentName ? `[${m.agentName}]: ${m.content}` : `[User]: ${m.content}`;
     
     if (lastRole === currentRole) {
       // Same role as previous - accumulate
@@ -718,16 +845,13 @@ async function streamAgentResponse(
   try {
     let assistantMessage = '';
 
-    const streamHandler = new StreamHandler({
-      onToken: (token: string) => {
-        process.stdout.write(agentColor(token));
-        assistantMessage += token;
-      },
-      onDone: () => {
-        process.stdout.write('\n');
-      },
-      onMetrics: () => {},
-    });
+    const streamHandler = createColorAwareStreamHandler(
+      agent.name,
+      allAgents,
+      (fullMessage) => {
+        assistantMessage = fullMessage;
+      }
+    );
 
     const stream = client.chatCompletionStream({
       model: agent.model,

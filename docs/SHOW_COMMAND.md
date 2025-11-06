@@ -286,3 +286,4 @@ RESPONSE MECHANICS:
 - `/info` - Show current agent settings (model parameters only, no system prompt)
 - `/status` - Show performance and context usage statistics
 
+

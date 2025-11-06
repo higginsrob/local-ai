@@ -110,3 +110,4 @@ No linter errors introduced.
 - `/info` - Model settings only (no system prompt)
 - `/status` - Performance and context usage stats
 
+

@@ -9,7 +9,11 @@ import type { Agent } from '../types/agent.ts';
 import type { Session, Message } from '../types/session.ts';
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import os from 'os';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export async function agentCommand(subcommand?: string, args: string[] = []): Promise<void> {
   const storage = new Storage();
@@ -24,10 +28,22 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     await newAgent(storage, configManager, args[0]);
   } else if (subcommand === 'remove') {
     await removeAgent(storage, args[0]);
-  } else if (subcommand === 'add-attribute') {
-    await addAttribute(storage, configManager, args[0], args.slice(1).join(' '));
-  } else if (subcommand === 'remove-attribute') {
-    await removeAttribute(storage, configManager, args[0]);
+  } else if (subcommand === 'traits') {
+    await manageTraits(storage, args[0]);
+  } else if (subcommand === 'trait-add') {
+    await addTrait(storage, args[0]);
+  } else if (subcommand === 'trait-remove') {
+    await removeTrait(storage, args[0]);
+  } else if (subcommand === 'expertise-add') {
+    await addExpertise(storage, args[0]);
+  } else if (subcommand === 'expertise-remove') {
+    await removeExpertise(storage, args[0]);
+  } else if (subcommand === 'attribute-add') {
+    await addAttribute(storage, args[0]);
+  } else if (subcommand === 'attribute-remove') {
+    await removeAttribute(storage, args[0]);
+  } else if (subcommand === 'configure') {
+    await configureAgent(storage, args[0]);
   } else if (subcommand === 'edit') {
     await editAgent(storage, args[0]);
   } else if (subcommand === 'install') {
@@ -51,8 +67,14 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     console.log('  install                                    - Install agent executables to PATH');
     console.log('  status                                     - Show current session performance status');
     console.log('  compact <session-id>                       - Compact a session by summarizing');
-    console.log('  add-attribute <name> <value>               - Add attribute');
-    console.log('  remove-attribute <name>                    - Remove attribute');
+    console.log('  traits <name>                              - Manage agent personality traits');
+    console.log('  trait-add <name>                           - Add a personality trait');
+    console.log('  trait-remove <name>                        - Remove a personality trait');
+    console.log('  expertise-add <name>                       - Add an area of expertise');
+    console.log('  expertise-remove <name>                    - Remove an area of expertise');
+    console.log('  attribute-add <name>                       - Add a custom attribute');
+    console.log('  attribute-remove <name>                    - Remove a custom attribute');
+    console.log('  configure <name>                           - Configure agent settings');
     console.log('  import <file>                              - Import agent from JSON');
     console.log('  export <name> <file>                       - Export agent to JSON');
     process.exit(1);
@@ -200,69 +222,526 @@ async function removeAgent(storage: Storage, name?: string): Promise<void> {
   console.log(chalk.green(`✓ Removed agent: ${name}`));
 }
 
-async function addAttribute(
-  storage: Storage,
-  configManager: ConfigManager,
-  attributeName?: string,
-  attributeValue?: string
-): Promise<void> {
-  if (!attributeName || !attributeValue) {
-    console.error(chalk.red('Both attribute name and value are required'));
-    console.log('Usage: ai agent add-attribute <attribute-name> <attribute-value>');
+async function manageTraits(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent traits <name>');
     process.exit(1);
   }
 
-  const currentAgent = await configManager.getCurrentAgent();
-  if (!currentAgent) {
-    console.error(chalk.red('No agent selected'));
-    process.exit(1);
-  }
-
-  const agent = await storage.loadAgent(currentAgent);
+  // Load the agent
+  const agent = await storage.loadAgent(name);
   
-  let parsedValue: any = attributeValue;
+  // Load personality traits from data file
+  const personalityPath = path.join(__dirname, '..', 'data', 'personality.json');
+  const personalityData = JSON.parse(await fs.readFile(personalityPath, 'utf-8'));
+  
+  // Get currently selected traits (if any)
+  const currentTraits: string[] = agent.attributes.personality || [];
+  
+  // Create choices grouped by category
+  const choices: any[] = [];
+  
+  // Add positive traits
+  choices.push({ title: chalk.green.bold('─── Positive Traits ───'), value: '__positive_header__', disabled: true });
+  personalityData.positive.forEach((trait: string) => {
+    choices.push({
+      title: trait,
+      value: trait,
+      selected: currentTraits.includes(trait),
+    });
+  });
+  
+  // Add neutral traits
+  choices.push({ title: chalk.yellow.bold('\n─── Neutral Traits ───'), value: '__neutral_header__', disabled: true });
+  personalityData.neutral.forEach((trait: string) => {
+    choices.push({
+      title: trait,
+      value: trait,
+      selected: currentTraits.includes(trait),
+    });
+  });
+  
+  // Add negative traits
+  choices.push({ title: chalk.red.bold('\n─── Negative Traits ───'), value: '__negative_header__', disabled: true });
+  personalityData.negative.forEach((trait: string) => {
+    choices.push({
+      title: trait,
+      value: trait,
+      selected: currentTraits.includes(trait),
+    });
+  });
+  
+  console.log(chalk.bold(`\n🎭 Manage Personality Traits for ${chalk.cyan(name)}\n`));
+  console.log(chalk.gray('Use ↑/↓ to navigate, space to select/deselect, enter to save\n'));
+  
+  // Show multi-select prompt with dynamic height
+  const response = await prompts({
+    type: 'multiselect',
+    name: 'traits',
+    message: 'Select personality traits',
+    choices: choices,
+    hint: '- Space to select. Return to submit',
+    instructions: false,
+    max: 40,
+    initial: 1,
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (response.traits === undefined) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Filter out header values
+  const selectedTraits = response.traits.filter(
+    (trait: string) => !trait.startsWith('__') && !trait.endsWith('__')
+  );
+  
+  // Update agent's personality traits in attributes.personality
+  agent.attributes.personality = selectedTraits;
+  agent.updatedAt = new Date().toISOString();
+  
+  await storage.saveAgent(agent);
+  
+  console.log(chalk.green(`\n✓ Updated personality traits for ${name}`));
+  console.log(chalk.gray(`  Selected ${selectedTraits.length} trait${selectedTraits.length !== 1 ? 's' : ''}`));
+  
+  if (selectedTraits.length > 0) {
+    const positiveCount = selectedTraits.filter((t: string) => personalityData.positive.includes(t)).length;
+    const neutralCount = selectedTraits.filter((t: string) => personalityData.neutral.includes(t)).length;
+    const negativeCount = selectedTraits.filter((t: string) => personalityData.negative.includes(t)).length;
+    
+    console.log(chalk.gray(`  ${chalk.green('Positive')}: ${positiveCount} | ${chalk.yellow('Neutral')}: ${neutralCount} | ${chalk.red('Negative')}: ${negativeCount}`));
+  }
+  console.log();
+}
+
+async function addTrait(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent trait-add <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  // Load personality traits from data file
+  const personalityPath = path.join(__dirname, '..', 'data', 'personality.json');
+  const personalityData = JSON.parse(await fs.readFile(personalityPath, 'utf-8'));
+  
+  // Get currently selected traits
+  const currentTraits: string[] = agent.attributes.personality || [];
+  
+  // Build a flat list of all available traits with category labels
+  const allTraits: string[] = [];
+  personalityData.positive.forEach((trait: string) => allTraits.push(trait));
+  personalityData.neutral.forEach((trait: string) => allTraits.push(trait));
+  personalityData.negative.forEach((trait: string) => allTraits.push(trait));
+  
+  // Filter out traits that are already selected
+  const availableTraits = allTraits.filter(trait => !currentTraits.includes(trait));
+  
+  if (availableTraits.length === 0) {
+    console.log(chalk.yellow('\n⚠ All traits are already selected!'));
+    console.log(chalk.gray('Use "ai agent trait-remove" to remove some first.\n'));
+    return;
+  }
+  
+  console.log(chalk.bold(`\n🎭 Add Personality Trait to ${chalk.cyan(name)}\n`));
+  console.log(chalk.gray('Start typing to search, use ↑/↓ to navigate, enter to select\n'));
+  
+  // Show autocomplete prompt
+  const response = await prompts({
+    type: 'autocomplete',
+    name: 'trait',
+    message: 'Select a trait to add',
+    choices: availableTraits.map(trait => ({
+      title: trait,
+      value: trait,
+    })),
+    limit: 10,
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.trait) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Add the trait
+  currentTraits.push(response.trait);
+  agent.attributes.personality = currentTraits;
+  agent.updatedAt = new Date().toISOString();
+  
+  await storage.saveAgent(agent);
+  
+  // Determine category
+  let category = 'trait';
+  if (personalityData.positive.includes(response.trait)) {
+    category = chalk.green('positive');
+  } else if (personalityData.neutral.includes(response.trait)) {
+    category = chalk.yellow('neutral');
+  } else if (personalityData.negative.includes(response.trait)) {
+    category = chalk.red('negative');
+  }
+  
+  console.log(chalk.green(`\n✓ Added ${category} trait: ${chalk.cyan(response.trait)}`));
+  console.log(chalk.gray(`  Total traits: ${currentTraits.length}`));
+  console.log();
+}
+
+async function removeTrait(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent trait-remove <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  // Get currently selected traits
+  const currentTraits: string[] = agent.attributes.personality || [];
+  
+  if (currentTraits.length === 0) {
+    console.log(chalk.yellow('\n⚠ No traits to remove!'));
+    console.log(chalk.gray('Use "ai agent trait-add" to add some first.\n'));
+    return;
+  }
+  
+  console.log(chalk.bold(`\n🎭 Remove Personality Trait from ${chalk.cyan(name)}\n`));
+  console.log(chalk.gray('Start typing to search, use ↑/↓ to navigate, enter to select\n'));
+  
+  // Show autocomplete prompt with current traits
+  const response = await prompts({
+    type: 'autocomplete',
+    name: 'trait',
+    message: 'Select a trait to remove',
+    choices: currentTraits.map(trait => ({
+      title: trait,
+      value: trait,
+    })),
+    limit: 10,
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.trait) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Remove the trait
+  const updatedTraits = currentTraits.filter(t => t !== response.trait);
+  agent.attributes.personality = updatedTraits;
+  agent.updatedAt = new Date().toISOString();
+  
+  await storage.saveAgent(agent);
+  
+  console.log(chalk.green(`\n✓ Removed trait: ${chalk.cyan(response.trait)}`));
+  console.log(chalk.gray(`  Remaining traits: ${updatedTraits.length}`));
+  console.log();
+}
+
+async function addExpertise(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent expertise-add <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  // Get current expertise
+  const currentExpertise: string[] = agent.attributes.expertise || [];
+  
+  console.log(chalk.bold(`\n🎓 Add Expertise to ${chalk.cyan(name)}\n`));
+  
+  // Prompt for expertise text
+  const response = await prompts({
+    type: 'text',
+    name: 'expertise',
+    message: 'Enter area of expertise:',
+    validate: (value) => {
+      if (!value || value.trim().length === 0) {
+        return 'Expertise cannot be empty';
+      }
+      if (currentExpertise.includes(value.trim())) {
+        return 'This expertise already exists';
+      }
+      return true;
+    },
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.expertise) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Add the expertise
+  currentExpertise.push(response.expertise.trim());
+  agent.attributes.expertise = currentExpertise;
+  agent.updatedAt = new Date().toISOString();
+  
+  await storage.saveAgent(agent);
+  
+  console.log(chalk.green(`\n✓ Added expertise: ${chalk.cyan(response.expertise.trim())}`));
+  console.log(chalk.gray(`  Total expertise areas: ${currentExpertise.length}`));
+  console.log();
+}
+
+async function removeExpertise(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent expertise-remove <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  // Get current expertise
+  const currentExpertise: string[] = agent.attributes.expertise || [];
+  
+  if (currentExpertise.length === 0) {
+    console.log(chalk.yellow('\n⚠ No expertise areas to remove!'));
+    console.log(chalk.gray('Use "ai agent expertise-add" to add some first.\n'));
+    return;
+  }
+  
+  console.log(chalk.bold(`\n🎓 Remove Expertise from ${chalk.cyan(name)}\n`));
+  console.log(chalk.gray('Start typing to search, use ↑/↓ to navigate, enter to select\n'));
+  
+  // Show autocomplete prompt with current expertise
+  const response = await prompts({
+    type: 'autocomplete',
+    name: 'expertise',
+    message: 'Select expertise to remove',
+    choices: currentExpertise.map(exp => ({
+      title: exp,
+      value: exp,
+    })),
+    limit: 10,
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.expertise) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Remove the expertise
+  const updatedExpertise = currentExpertise.filter(e => e !== response.expertise);
+  agent.attributes.expertise = updatedExpertise;
+  agent.updatedAt = new Date().toISOString();
+  
+  await storage.saveAgent(agent);
+  
+  console.log(chalk.green(`\n✓ Removed expertise: ${chalk.cyan(response.expertise)}`));
+  console.log(chalk.gray(`  Remaining expertise areas: ${updatedExpertise.length}`));
+  console.log();
+}
+
+async function addAttribute(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent attribute-add <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  console.log(chalk.bold(`\n⚙️  Add Custom Attribute to ${chalk.cyan(name)}\n`));
+  
+  // Prompt for attribute key and value
+  const response = await prompts([
+    {
+      type: 'text',
+      name: 'key',
+      message: 'Attribute name:',
+      validate: (value) => {
+        if (!value || value.trim().length === 0) {
+          return 'Attribute name cannot be empty';
+        }
+        if (value === 'expertise' || value === 'personality') {
+          return 'Use expertise-add or trait-add for these attributes';
+        }
+        if (value in agent.attributes) {
+          return `Attribute "${value}" already exists. Use attribute-remove first.`;
+        }
+        return true;
+      },
+    },
+    {
+      type: 'text',
+      name: 'value',
+      message: 'Attribute value:',
+      validate: (value) => value !== undefined && value.trim().length > 0 || 'Value cannot be empty',
+    },
+  ]);
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.key || !response.value) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Try to parse as JSON, otherwise store as string
+  let parsedValue: any = response.value.trim();
   try {
-    parsedValue = JSON.parse(attributeValue);
+    parsedValue = JSON.parse(response.value);
   } catch {
     // Keep as string
   }
   
-  agent.attributes[attributeName] = parsedValue;
+  // Add the attribute
+  agent.attributes[response.key.trim()] = parsedValue;
   agent.updatedAt = new Date().toISOString();
   
   await storage.saveAgent(agent);
-  console.log(chalk.green(`✓ Added attribute ${attributeName} to agent ${agent.name}`));
+  
+  console.log(chalk.green(`\n✓ Added attribute: ${chalk.cyan(response.key.trim())}`));
+  console.log(chalk.gray(`  Value: ${JSON.stringify(parsedValue)}`));
+  console.log();
 }
 
-async function removeAttribute(
-  storage: Storage,
-  configManager: ConfigManager,
-  attributeName?: string
-): Promise<void> {
-  if (!attributeName) {
-    console.error(chalk.red('Attribute name is required'));
-    console.log('Usage: ai agent remove-attribute <attribute-name>');
+async function removeAttribute(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent attribute-remove <name>');
     process.exit(1);
   }
 
-  const currentAgent = await configManager.getCurrentAgent();
-  if (!currentAgent) {
-    console.error(chalk.red('No agent selected'));
-    process.exit(1);
-  }
-
-  const agent = await storage.loadAgent(currentAgent);
+  // Load the agent
+  const agent = await storage.loadAgent(name);
   
-  if (!(attributeName in agent.attributes)) {
-    console.error(chalk.red(`Attribute ${attributeName} not found`));
-    process.exit(1);
+  // Get custom attributes (excluding expertise and personality)
+  const customAttributes = Object.keys(agent.attributes).filter(
+    key => key !== 'expertise' && key !== 'personality'
+  );
+  
+  if (customAttributes.length === 0) {
+    console.log(chalk.yellow('\n⚠ No custom attributes to remove!'));
+    console.log(chalk.gray('Use "ai agent attribute-add" to add some first.\n'));
+    return;
   }
   
-  delete agent.attributes[attributeName];
+  console.log(chalk.bold(`\n⚙️  Remove Custom Attribute from ${chalk.cyan(name)}\n`));
+  console.log(chalk.gray('Start typing to search, use ↑/↓ to navigate, enter to select\n'));
+  
+  // Show autocomplete prompt with custom attributes
+  const response = await prompts({
+    type: 'autocomplete',
+    name: 'key',
+    message: 'Select attribute to remove',
+    choices: customAttributes.map(key => ({
+      title: `${key}: ${JSON.stringify(agent.attributes[key])}`,
+      value: key,
+    })),
+    limit: 10,
+  });
+  
+  // If user cancelled (Ctrl+C), exit without saving
+  if (!response.key) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+  
+  // Remove the attribute
+  const removedValue = agent.attributes[response.key];
+  delete agent.attributes[response.key];
   agent.updatedAt = new Date().toISOString();
   
   await storage.saveAgent(agent);
-  console.log(chalk.green(`✓ Removed attribute ${attributeName} from agent ${agent.name}`));
+  
+  console.log(chalk.green(`\n✓ Removed attribute: ${chalk.cyan(response.key)}`));
+  console.log(chalk.gray(`  Was: ${JSON.stringify(removedValue)}`));
+  console.log();
+}
+
+async function configureAgent(storage: Storage, name?: string): Promise<void> {
+  if (!name) {
+    console.error(chalk.red('Agent name is required'));
+    console.log('Usage: ai agent configure <name>');
+    process.exit(1);
+  }
+
+  // Load the agent
+  const agent = await storage.loadAgent(name);
+  
+  console.log(chalk.bold(`\n⚙️  Configure ${chalk.cyan(name)}\n`));
+  
+  // Prompt for agent configuration with current values as defaults
+  const responses = await prompts([
+    {
+      type: 'text',
+      name: 'model',
+      message: 'Model:',
+      initial: agent.model,
+    },
+    {
+      type: 'text',
+      name: 'systemPrompt',
+      message: 'System prompt:',
+      initial: agent.systemPrompt,
+    },
+    {
+      type: 'number',
+      name: 'ctxSize',
+      message: 'Context size:',
+      initial: agent.modelParams.ctxSize,
+    },
+    {
+      type: 'number',
+      name: 'maxTokens',
+      message: 'Max tokens:',
+      initial: agent.modelParams.maxTokens,
+    },
+    {
+      type: 'number',
+      name: 'temperature',
+      message: 'Temperature:',
+      initial: agent.modelParams.temperature,
+    },
+    {
+      type: 'number',
+      name: 'topP',
+      message: 'Top P:',
+      initial: agent.modelParams.topP,
+    },
+    {
+      type: 'number',
+      name: 'topN',
+      message: 'Top N:',
+      initial: agent.modelParams.topN,
+    },
+  ]);
+
+  // If user cancelled (Ctrl+C), exit without saving
+  if (Object.keys(responses).length === 0) {
+    console.log(chalk.yellow('\n✗ Cancelled'));
+    process.exit(0);
+  }
+
+  // Update agent configuration (preserving attributes)
+  agent.model = responses.model || agent.model;
+  agent.systemPrompt = responses.systemPrompt || agent.systemPrompt;
+  agent.modelParams.ctxSize = responses.ctxSize || agent.modelParams.ctxSize;
+  agent.modelParams.maxTokens = responses.maxTokens || agent.modelParams.maxTokens;
+  agent.modelParams.temperature = responses.temperature !== undefined ? responses.temperature : agent.modelParams.temperature;
+  agent.modelParams.topP = responses.topP !== undefined ? responses.topP : agent.modelParams.topP;
+  agent.modelParams.topN = responses.topN || agent.modelParams.topN;
+  agent.updatedAt = new Date().toISOString();
+
+  await storage.saveAgent(agent);
+  
+  console.log(chalk.green(`\n✓ Updated configuration for ${name}`));
+  console.log(chalk.gray('  Attributes preserved'));
+  console.log();
 }
 
 async function importAgent(storage: Storage, filePath?: string): Promise<void> {

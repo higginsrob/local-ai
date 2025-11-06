@@ -88,7 +88,7 @@ The file was not saved or contains invalid JSON
 
 ### Quick Configuration Changes
 
-Instead of using multiple `add-attribute` commands, edit the JSON directly:
+For personality traits, use the interactive traits command. For other custom attributes, edit the JSON directly:
 
 ```bash
 ai agent edit my-agent

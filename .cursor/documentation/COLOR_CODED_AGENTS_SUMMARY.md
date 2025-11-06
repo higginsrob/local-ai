@@ -59,3 +59,4 @@ This color assignment remains consistent throughout the entire meeting session.
 - Color map is maintained in memory for the session
 - No persistence required - colors may vary between meetings (but remain consistent within a meeting)
 
+

@@ -50,6 +50,9 @@ execSync('tsc -p tsconfig.build.json', {
   stdio: 'inherit'
 });
 
+console.log('📦 Copying data files...');
+cpSync(join(rootDir, 'src', 'data'), join(distDir, 'data'), { recursive: true });
+
 console.log('🧹 Cleaning up...');
 rmSync(buildDir, { recursive: true, force: true });
 

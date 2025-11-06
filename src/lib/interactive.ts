@@ -114,6 +114,132 @@ export async function startInteractive(
       if (input.startsWith('/')) {
         const result = await handleSlashCommand(input, currentSession, settings, client, configManager);
         
+        // Handle agent switching BEFORE checking exit
+        // (because agent switching stays in the same loop)
+        if (result.switchToAgent) {
+          // Unlock current agent
+          if (currentSession.agentName) {
+            await storage.unlockAgent(currentSession.agentName);
+          }
+          
+          // Unload current model
+          await modelManager.unloadModel(model);
+          
+          // Load new agent
+          try {
+            const newAgent = await storage.loadAgent(result.switchToAgent);
+            const newModel = newAgent.model;
+            
+            // Check if new agent is already locked
+            const isLocked = await storage.isAgentLocked(result.switchToAgent);
+            if (isLocked) {
+              console.log(chalk.red(`\n⚠️  ${result.switchToAgent} is currently busy in another session.`));
+              console.log(chalk.yellow('Returning to previous agent...\n'));
+              
+              // Re-lock and reload previous agent (if we had one)
+              if (currentSession.agentName) {
+                await storage.lockAgent(currentSession.agentName);
+                await modelManager.loadModel(model, {
+                  ctxSize: settings.ctxSize,
+                  temperature: settings.temperature,
+                  topP: settings.topP,
+                  topK: settings.topN,
+                });
+              }
+              continue;
+            }
+            
+            // Lock new agent
+            await storage.lockAgent(result.switchToAgent);
+            
+            // Update current agent setting
+            await configManager.setCurrentAgent(result.switchToAgent);
+            console.log(chalk.gray(`\nSwitched to agent: ${result.switchToAgent} (${newModel})`));
+            
+            // Load or create session for new agent
+            const sessionId = `session-${result.switchToAgent}`;
+            try {
+              currentSession = await storage.loadSession(sessionId);
+              const messageCount = currentSession.messages.length;
+              if (messageCount > 0) {
+                console.log(chalk.gray(`Continuing session with ${messageCount} message(s)`));
+              }
+            } catch {
+              // Create new session
+              const currentProfileName = await configManager.getCurrentProfile();
+              currentSession = {
+                id: sessionId,
+                agentName: result.switchToAgent,
+                profileName: currentProfileName,
+                messages: [],
+                metadata: {
+                  tokenCount: 0,
+                  toolCalls: 0,
+                },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              };
+            }
+            
+            // Update settings with new agent's model parameters
+            model = newModel;
+            settings = {
+              ...settings,
+              model: newModel,
+              ctxSize: newAgent.modelParams?.ctxSize || settings.ctxSize,
+              maxTokens: newAgent.modelParams?.maxTokens || settings.maxTokens,
+              temperature: newAgent.modelParams?.temperature || settings.temperature,
+              topP: newAgent.modelParams?.topP || settings.topP,
+              topN: newAgent.modelParams?.topN || settings.topN,
+            };
+            
+            // Load new model
+            await modelManager.loadModel(model, {
+              ctxSize: settings.ctxSize,
+              temperature: settings.temperature,
+              topP: settings.topP,
+              topK: settings.topN,
+            });
+            
+            console.log(chalk.gray('Type /help for commands, /quit to exit, or press Ctrl+C\n'));
+            
+          } catch (error) {
+            console.error(chalk.red(`\n✗ Failed to switch to agent: ${result.switchToAgent}`));
+            console.log(chalk.yellow('Returning to previous agent...\n'));
+            
+            // Re-lock and reload previous agent (if we had one)
+            if (currentSession.agentName) {
+              await storage.lockAgent(currentSession.agentName);
+              await modelManager.loadModel(model, {
+                ctxSize: settings.ctxSize,
+                temperature: settings.temperature,
+                topP: settings.topP,
+                topK: settings.topN,
+              });
+            }
+          }
+          
+          continue;
+        }
+        
+        // Handle meeting switching
+        if (result.switchToMeeting) {
+          // Unlock current agent and unload model
+          if (currentSession.agentName) {
+            await storage.unlockAgent(currentSession.agentName);
+          }
+          await modelManager.unloadModel(model);
+          process.off('SIGINT', handleSigInt);
+          
+          // Start meeting - this will take over completely
+          const { meetingCommand } = await import('../commands/meeting.js');
+          await meetingCommand(result.switchToMeeting);
+          
+          // Meeting ended, exit the program
+          process.exit(0);
+        }
+        
+        // Check other result flags (after handling switches)
         if (result.exit) {
           break;
         }
@@ -124,40 +250,6 @@ export async function startInteractive(
         
         if (result.session) {
           currentSession = result.session;
-        }
-        
-        // Handle agent switching
-        if (result.switchToAgent) {
-          // Clean up current session without goodbye message
-          shouldExit = true; // Mark that we're switching, not exiting
-          if (currentSession.agentName) {
-            await storage.unlockAgent(currentSession.agentName);
-            currentSession.agentName = ''; // Clear to prevent double cleanup
-          }
-          await modelManager.unloadModel(model);
-          process.off('SIGINT', handleSigInt);
-          
-          // Load new agent and start new session
-          const { runCommand } = await import('../commands/run.js');
-          await runCommand(result.switchToAgent);
-          return; // Exit after new session ends
-        }
-        
-        // Handle meeting switching
-        if (result.switchToMeeting) {
-          // Clean up current session without goodbye message
-          shouldExit = true; // Mark that we're switching, not exiting
-          if (currentSession.agentName) {
-            await storage.unlockAgent(currentSession.agentName);
-            currentSession.agentName = ''; // Clear to prevent double cleanup
-          }
-          await modelManager.unloadModel(model);
-          process.off('SIGINT', handleSigInt);
-          
-          // Start meeting
-          const { meetingCommand } = await import('../commands/meeting.js');
-          await meetingCommand(result.switchToMeeting);
-          return; // Exit after meeting ends
         }
         
         // Reconfigure model if parameters changed
