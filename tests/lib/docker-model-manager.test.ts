@@ -18,7 +18,7 @@ describe('DockerModelManager', () => {
     storage = new Storage(testDir);
     await storage.init();
     configManager = new ConfigManager(storage);
-    modelManager = new DockerModelManager(configManager);
+    modelManager = new DockerModelManager(storage);
   });
 
   test('should create manager instance', () => {
@@ -31,7 +31,7 @@ describe('DockerModelManager', () => {
   // For now, we test the basic instantiation
   
   test('should accept storage parameter', () => {
-    const managerWithStorage = new DockerModelManager(configManager as any);
+    const managerWithStorage = new DockerModelManager(storage);
     assert.ok(managerWithStorage);
   });
 

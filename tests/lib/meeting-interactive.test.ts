@@ -434,18 +434,21 @@ describe('Meeting Session Flow', () => {
     meetingSession.sharedMessages.push({
       role: 'user',
       content: 'What is our strategy?',
+      timestamp: new Date().toISOString(),
     });
 
     // CEO response
     meetingSession.sharedMessages.push({
       role: 'assistant',
       content: '[ceo] We should focus on growth. @cto what are the technical constraints?',
+      timestamp: new Date().toISOString(),
     });
 
     // CTO response
     meetingSession.sharedMessages.push({
       role: 'assistant',
       content: '[cto] We can scale to 2x users. @cfo what is the budget?',
+      timestamp: new Date().toISOString(),
     });
 
     assert.strictEqual(meetingSession.sharedMessages.length, 3);
@@ -490,6 +493,7 @@ describe('Meeting Session Flow', () => {
     meetingSession.sharedMessages.push({
       role: 'user',
       content: 'Test message',
+      timestamp: new Date().toISOString(),
     });
 
     meetingSession.metadata.totalMessages = (meetingSession.metadata.totalMessages || 0) + 1;
@@ -515,6 +519,7 @@ describe('Meeting Session Flow', () => {
     meetingSession.sharedMessages.push({
       role: 'user',
       content: 'Message',
+      timestamp: new Date().toISOString(),
     });
 
     assert.strictEqual(meetingSession.roomName, 'test-room');

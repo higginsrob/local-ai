@@ -221,7 +221,7 @@ describe('Storage', () => {
         agentNames: ['ceo', 'cto', 'cfo'],
         profileName: 'default',
         sharedMessages: [
-          { role: 'user' as const, content: 'What is our strategy?' },
+          { role: 'user' as const, content: 'What is our strategy?', timestamp: new Date().toISOString() },
         ],
         bufferedResponses: [],
         maxChainLength: 5,
