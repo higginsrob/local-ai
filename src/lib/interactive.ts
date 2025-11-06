@@ -233,7 +233,7 @@ export async function startInteractive(
           
           // Start meeting - this will take over completely
           const { meetingCommand } = await import('../commands/meeting.js');
-          await meetingCommand(result.switchToMeeting);
+          await meetingCommand('start', result.switchToMeeting);
           
           // Meeting ended, exit the program
           process.exit(0);

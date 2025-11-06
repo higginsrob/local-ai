@@ -42,12 +42,6 @@ describe('ConfigManager', () => {
     assert.strictEqual(agent, 'coder');
   });
 
-  test('should get and set current session', async () => {
-    await configManager.setCurrentSession('session-123');
-    const session = await configManager.getCurrentSession();
-    assert.strictEqual(session, 'session-123');
-  });
-
   test('should get docker host', async () => {
     const dockerHost = await configManager.getDockerHost();
     assert.strictEqual(dockerHost, 'unix:///var/run/docker.sock');

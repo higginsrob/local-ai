@@ -16,19 +16,43 @@ The meeting feature allows you to:
 ### Starting a Meeting
 
 ```bash
-ai meeting <agent1> <agent2> [<agent3>...]
+ai meeting start <room-name> <agent1> <agent2> [<agent3>...]
 ```
 
 **Example:**
 ```bash
-ai meeting ceo cto cfo
+ai meeting start executive-team ceo cto cfo
 ```
 
 You need at least 2 agents to start a meeting. The command will:
 1. Validate that all agents exist
 2. Check that no agent is currently locked by another session
-3. Create or resume a meeting session
+3. Create or resume a meeting room with the specified name
 4. Display meeting participants
+
+### Listing Meeting Rooms
+
+```bash
+ai meeting ls
+```
+
+Shows all active meeting rooms with their participants and message counts.
+
+### Showing Room Details
+
+```bash
+ai meeting show <room-name>
+```
+
+Displays detailed information about a specific meeting room, including participants, settings, and recent messages.
+
+### Restoring Archived Meetings
+
+```bash
+ai meeting restore [archive-name]
+```
+
+Without an archive name, lists all available archived meetings. With a name, restores the archived meeting and resumes the conversation.
 
 ### Message Targeting
 
@@ -198,17 +222,20 @@ You can then:
 
 ## Meeting Session Persistence
 
-Meeting sessions are automatically saved after each exchange. The session ID is based on the sorted list of agent names, so resuming a meeting with the same agents will restore the previous conversation:
+Meeting sessions are automatically saved after each exchange. Each meeting room has a unique name, and resuming a meeting with that room name will restore the previous conversation:
 
 ```bash
 # First meeting
-ai meeting ceo cfo cto
+ai meeting start executive-team ceo cto cfo
 
-# Later - resumes the same meeting
-ai meeting ceo cto cfo  # Order doesn't matter
+# Later - resumes the same meeting room
+ai meeting start executive-team
+
+# Or add more participants to existing room
+ai meeting start executive-team coo
 ```
 
-Meeting sessions are stored in `~/.ai/meetings/`
+Meeting sessions are stored in `~/.ai/meetings/` with the room name as part of the session ID.
 
 ## Agent Locking
 
@@ -223,7 +250,7 @@ If a meeting terminates unexpectedly, the agent locks are automatically cleaned 
 
 ```bash
 # Start a strategic planning meeting
-ai meeting ceo cto cfo
+ai meeting start executive-team ceo cto cfo
 
 # Broadcast a question - most qualified agent responds
 > What should be our top priority for Q1?

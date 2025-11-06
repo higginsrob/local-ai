@@ -237,7 +237,7 @@ In broadcast mode, agents self-select based on qualification rather than all res
 ## Example Conversation with Enhanced Prompts
 
 ```bash
-$ ai meeting ceo cto cfo
+$ ai meeting start executive-team ceo cto cfo
 
 > We need to decide whether to build or buy our authentication system
 

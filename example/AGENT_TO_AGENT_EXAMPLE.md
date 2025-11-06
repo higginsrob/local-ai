@@ -9,7 +9,7 @@ Meeting participants: `ceo`, `cto`, `cfo`
 ### Example 1: Simple Agent-to-Agent Chain
 
 ```bash
-$ ai meeting ceo cto cfo
+$ ai meeting start executive-team ceo cto cfo
 
 > We need to launch the new feature next month. Thoughts?
 

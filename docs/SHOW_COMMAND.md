@@ -8,7 +8,7 @@ The `/show` command is a diagnostic tool that displays an agent's complete confi
 
 The `/show` command is available in both:
 - **Single-agent sessions** (via `ai run <agent>`)
-- **Multi-agent meetings** (via `ai meeting <agent1> <agent2> ...`)
+- **Multi-agent meetings** (via `ai meeting start <room-name> <agent1> <agent2> ...`)
 
 ## Usage
 

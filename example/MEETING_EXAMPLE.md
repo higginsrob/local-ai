@@ -1,11 +1,11 @@
 # AI Meeting Example
 
-This is an example of how the new `ai meeting` command works in practice.
+This is an example of how the `ai meeting` command works in practice.
 
 ## Starting a Meeting
 
 ```bash
-$ ai meeting ceo cto cfo
+$ ai meeting start executive-team ceo cto cfo
 
 🎯 Starting new meeting with: ceo, cto, cfo
 

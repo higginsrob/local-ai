@@ -8,22 +8,42 @@ import type { Agent } from '../types/agent.ts';
 import type { MeetingSession } from '../types/meeting.ts';
 import type { Session } from '../types/session.ts';
 
-export async function meetingCommand(roomNameOrAgents: string[]): Promise<void> {
-  if (!roomNameOrAgents || roomNameOrAgents.length === 0) {
-    console.error(chalk.red('Room name is required'));
-    console.log('\nUsage: ai meeting <room-name> [<agent1> <agent2> ...]');
-    console.log('       ai meeting restore <archive-name>');
+export async function meetingCommand(subcommand?: string, args: string[] = []): Promise<void> {
+  const storage = new Storage();
+  await storage.init();
+
+  if (!subcommand || subcommand === 'start') {
+    await startMeeting(args);
+  } else if (subcommand === 'restore') {
+    await restoreMeeting(args);
+  } else if (subcommand === 'ls') {
+    await listMeetings(storage);
+  } else if (subcommand === 'show') {
+    await showMeeting(storage, args[0]);
+  } else {
+    console.error(chalk.red(`Unknown subcommand: ${subcommand}`));
+    console.log('\nAvailable subcommands:');
+    console.log('  start <room-name> [agents...]  - Create or resume a meeting room');
+    console.log('  restore [archive-name]         - Restore archived meeting session');
+    console.log('  ls                             - List active meeting rooms');
+    console.log('  show <room-name>               - Show meeting room details');
     console.log('\nExamples:');
-    console.log('  ai meeting executive-team ceo cto cfo  # Create new room with agents');
-    console.log('  ai meeting executive-team               # Resume existing room');
-    console.log('  ai meeting restore project-planning     # Restore archived session');
+    console.log('  ai meeting start executive-team ceo cto cfo  # Create new room');
+    console.log('  ai meeting start executive-team              # Resume existing room');
+    console.log('  ai meeting restore project-planning          # Restore archived session');
+    console.log('  ai meeting ls                                # List all rooms');
     process.exit(1);
   }
+}
 
-  // Handle 'restore' subcommand
-  if (roomNameOrAgents[0] === 'restore') {
-    await handleRestore(roomNameOrAgents.slice(1));
-    return;
+async function startMeeting(roomNameOrAgents: string[]): Promise<void> {
+  if (!roomNameOrAgents || roomNameOrAgents.length === 0) {
+    console.error(chalk.red('Room name is required'));
+    console.log('\nUsage: ai meeting start <room-name> [<agent1> <agent2> ...]');
+    console.log('\nExamples:');
+    console.log('  ai meeting start executive-team ceo cto cfo  # Create new room with agents');
+    console.log('  ai meeting start executive-team              # Resume existing room');
+    process.exit(1);
   }
 
   const storage = new Storage();
@@ -84,8 +104,8 @@ export async function meetingCommand(roomNameOrAgents: string[]): Promise<void> 
     // Create new meeting room
     if (initialAgentNames.length < 2) {
       console.error(chalk.red('At least 2 agents are required for a new meeting room'));
-      console.log('\nUsage: ai meeting <room-name> <agent1> <agent2> [<agent3>...]');
-      console.log('\nExample: ai meeting executive-team ceo cto cfo');
+      console.log('\nUsage: ai meeting start <room-name> <agent1> <agent2> [<agent3>...]');
+      console.log('\nExample: ai meeting start executive-team ceo cto cfo');
       process.exit(1);
     }
     
@@ -160,7 +180,85 @@ export async function meetingCommand(roomNameOrAgents: string[]): Promise<void> 
   await startMeetingInteractive(agents, meetingSession, storage, configManager);
 }
 
-async function handleRestore(args: string[]): Promise<void> {
+async function listMeetings(storage: Storage): Promise<void> {
+  const meetings = await storage.listMeetingSessions();
+  
+  console.log(chalk.bold('\n🎯 Meeting Rooms\n'));
+  
+  if (meetings.length === 0) {
+    console.log(chalk.gray('  (none)'));
+    console.log('\nCreate a meeting room with: ai meeting start <room-name> <agent1> <agent2>');
+  } else {
+    for (const id of meetings) {
+      try {
+        const meeting = await storage.loadMeetingSession(id);
+        const roomName = meeting.roomName || meeting.id;
+        const messageCount = meeting.sharedMessages.length;
+        const agentCount = meeting.agentNames.length;
+        
+        console.log(`  ${chalk.cyan(roomName)}`);
+        console.log(`    Participants: ${meeting.agentNames.join(', ')}`);
+        console.log(`    Messages: ${messageCount}`);
+        console.log(`    Updated: ${chalk.gray(new Date(meeting.updatedAt).toLocaleString())}`);
+        console.log();
+      } catch (error) {
+        console.log(`  ${chalk.cyan(id)} ${chalk.red('(invalid)')}`);
+        console.log();
+      }
+    }
+  }
+}
+
+async function showMeeting(storage: Storage, roomName?: string): Promise<void> {
+  if (!roomName) {
+    console.error(chalk.red('Room name is required'));
+    console.log('Usage: ai meeting show <room-name>');
+    process.exit(1);
+  }
+
+  const meetingId = `room-${roomName}`;
+  
+  try {
+    const meeting = await storage.loadMeetingSession(meetingId);
+    
+    console.log(chalk.bold(`\n🎯 Meeting Room: ${meeting.roomName || meeting.id}\n`));
+    console.log(chalk.gray(`Created: ${new Date(meeting.createdAt).toLocaleString()}`));
+    console.log(chalk.gray(`Updated: ${new Date(meeting.updatedAt).toLocaleString()}`));
+    console.log(`Profile: ${meeting.profileName}`);
+    
+    console.log(chalk.bold('\nParticipants:'));
+    for (const agentName of meeting.agentNames) {
+      const agentColor = getAgentColor(agentName);
+      console.log(`  ${agentColor(agentName)}`);
+    }
+    
+    console.log(chalk.bold('\nSettings:'));
+    console.log(`  Max Chain Length: ${meeting.maxChainLength}`);
+    console.log(`  Check-in Token Limit: ${meeting.checkInTokenLimit}`);
+    
+    console.log(chalk.bold('\nMetadata:'));
+    console.log(`  Active Agents: ${meeting.metadata.activeAgents?.join(', ') || 'N/A'}`);
+    console.log(`  Total Messages: ${meeting.metadata.totalMessages || meeting.sharedMessages.length}`);
+    
+    console.log(chalk.bold(`\nMessages (${meeting.sharedMessages.length}):\n`));
+    
+    if (meeting.sharedMessages.length > 0) {
+      displayHistory(meeting, Math.min(5, meeting.sharedMessages.length));
+      if (meeting.sharedMessages.length > 5) {
+        console.log(chalk.gray(`  ... and ${meeting.sharedMessages.length - 5} more messages`));
+      }
+    } else {
+      console.log(chalk.gray('  (no messages yet)'));
+    }
+    console.log();
+  } catch (error) {
+    console.error(chalk.red(`Meeting room not found: ${roomName}`));
+    console.log('\nUse: ai meeting ls to see available rooms');
+    process.exit(1);
+  }
+}
+
+async function restoreMeeting(args: string[]): Promise<void> {
   if (args.length === 0) {
     // List available archives
     const storage = new Storage();

@@ -46,14 +46,6 @@ program
     await sessionCommand('reset', []);
   });
 
-program
-  .command('meeting')
-  .description('Start an interactive meeting with multiple agents')
-  .argument('<agents...>', 'Agent names to include in the meeting')
-  .action(async (agents: string[]) => {
-    await meetingCommand(agents);
-  });
-
 // Profile command with subcommands
 const profile = program
   .command('profile')
@@ -326,6 +318,39 @@ session
   .description('Remove and display last messages')
   .action(async (count?: string) => {
     await sessionCommand('pop', count ? [count] : []);
+  });
+
+// Meeting command with subcommands
+const meeting = program
+  .command('meeting')
+  .description('Manage multi-agent meeting rooms');
+
+meeting
+  .command('start <room-name> [agents...]')
+  .description('Create or resume a meeting room')
+  .action(async (roomName: string, agents: string[]) => {
+    await meetingCommand('start', [roomName, ...agents]);
+  });
+
+meeting
+  .command('restore [archive-name]')
+  .description('Restore archived meeting session')
+  .action(async (archiveName?: string) => {
+    await meetingCommand('restore', archiveName ? [archiveName] : []);
+  });
+
+meeting
+  .command('ls')
+  .description('List all meeting rooms')
+  .action(async () => {
+    await meetingCommand('ls', []);
+  });
+
+meeting
+  .command('show <room-name>')
+  .description('Show meeting room details')
+  .action(async (roomName: string) => {
+    await meetingCommand('show', [roomName]);
   });
 
 // Parse and handle errors

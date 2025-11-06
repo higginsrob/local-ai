@@ -178,7 +178,7 @@ async function handleAddAgent(
     console.log(chalk.gray(`  Role: ${agent.systemPrompt.substring(0, 80)}...`));
     console.log();
     console.log(chalk.gray('Note: Restart the room to apply changes or continue with current participants.'));
-    console.log(chalk.gray('To restart: /quit and then run "ai meeting ' + session.roomName + '"\n'));
+    console.log(chalk.gray('To restart: /quit and then run "ai meeting start ' + session.roomName + '"\n'));
     
     return { session };
   } catch (error) {
@@ -239,7 +239,7 @@ async function handleRemoveAgent(
   console.log(chalk.green(`\n✓ ${agentColor(removedName)} left the room`));
   console.log();
   console.log(chalk.gray('Note: Restart the room to apply changes or continue with current participants.'));
-  console.log(chalk.gray('To restart: /quit and then run "ai meeting ' + session.roomName + '"\n'));
+  console.log(chalk.gray('To restart: /quit and then run "ai meeting start ' + session.roomName + '"\n'));
 
   return { session };
 }
@@ -990,7 +990,7 @@ async function handleRestore(
         // Note: The meeting-interactive.ts will need to handle this switch
         // For now, inform the user they need to restart
         console.log(chalk.yellow('⚠ To restore a different room, please exit and run:'));
-        console.log(chalk.gray(`  ai meeting ${meetingSession.roomName}\n`));
+        console.log(chalk.gray(`  ai meeting start ${meetingSession.roomName}\n`));
         return {};
       }
     } else {

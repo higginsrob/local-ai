@@ -124,5 +124,118 @@ test('handleSlashCommand', async (t) => {
     const result = await handleSlashCommand('/unknown', mockSession, mockSettings);
     assert.strictEqual(result.exit, undefined);
   });
+
+  // Note: /clear and /reset commands modify the session in place and prompt the user
+  // They return { session } rather than flags, so we just test they don't throw
+
+  await t.test('should handle ctx-size command', async () => {
+    const result = await handleSlashCommand('/ctx-size 16384', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.ctxSize, 16384);
+  });
+
+  await t.test('should handle max-size command', async () => {
+    const result = await handleSlashCommand('/max-size 4096', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.maxTokens, 4096);
+  });
+
+  await t.test('should handle temperature command', async () => {
+    const result = await handleSlashCommand('/temperature 0.9', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.temperature, 0.9);
+  });
+
+  await t.test('should handle top_p command', async () => {
+    const result = await handleSlashCommand('/top_p 0.95', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.topP, 0.95);
+  });
+
+  await t.test('should handle top_n command', async () => {
+    const result = await handleSlashCommand('/top_n 50', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.topN, 50);
+  });
+
+  await t.test('should handle debug enable', async () => {
+    const result = await handleSlashCommand('/debug true', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.debug, true);
+  });
+
+  await t.test('should handle debug disable', async () => {
+    const result = await handleSlashCommand('/debug false', mockSession, mockSettings);
+    assert.strictEqual(result.settings?.debug, false);
+  });
+
+  await t.test('should handle quit aliases', async () => {
+    const commands = ['/quit', '/q', '/exit', '/e', '/x'];
+    for (const cmd of commands) {
+      const result = await handleSlashCommand(cmd, mockSession, mockSettings);
+      assert.strictEqual(result.exit, true, `${cmd} should exit`);
+    }
+  });
+
+  await t.test('should handle help aliases', async () => {
+    const commands = ['/help', '/h'];
+    for (const cmd of commands) {
+      const result = await handleSlashCommand(cmd, mockSession, mockSettings);
+      assert.strictEqual(result.exit, undefined, `${cmd} should not exit`);
+    }
+  });
+
+  // Note: /clear and /reset require prompts, so we skip testing them in unit tests
+
+  await t.test('should handle status aliases', async () => {
+    const commands = ['/status', '/s'];
+    for (const cmd of commands) {
+      const result = await handleSlashCommand(cmd, mockSession, mockSettings);
+      assert.strictEqual(result.exit, undefined, `${cmd} should work`);
+    }
+  });
+
+  await t.test('should handle info aliases', async () => {
+    const commands = ['/info', '/i'];
+    for (const cmd of commands) {
+      const result = await handleSlashCommand(cmd, mockSession, mockSettings);
+      assert.strictEqual(result.exit, undefined, `${cmd} should work`);
+    }
+  });
+
+  // Note: /reset requires prompts, so we skip testing it in unit tests
+
+  await t.test('should validate numeric parameters', async () => {
+    // Invalid temperature (too high)
+    const result1 = await handleSlashCommand('/temperature 3.0', mockSession, mockSettings);
+    assert.strictEqual(result1.settings?.temperature, undefined);
+
+    // Invalid temperature (negative)
+    const result2 = await handleSlashCommand('/temperature -0.5', mockSession, mockSettings);
+    assert.strictEqual(result2.settings?.temperature, undefined);
+
+    // Valid temperature
+    const result3 = await handleSlashCommand('/temperature 1.5', mockSession, mockSettings);
+    assert.strictEqual(result3.settings?.temperature, 1.5);
+  });
+
+  await t.test('should validate top_p range', async () => {
+    // Invalid top_p (too high)
+    const result1 = await handleSlashCommand('/top_p 1.5', mockSession, mockSettings);
+    assert.strictEqual(result1.settings?.topP, undefined);
+
+    // Invalid top_p (negative)
+    const result2 = await handleSlashCommand('/top_p -0.1', mockSession, mockSettings);
+    assert.strictEqual(result2.settings?.topP, undefined);
+
+    // Valid top_p
+    const result3 = await handleSlashCommand('/top_p 0.85', mockSession, mockSettings);
+    assert.strictEqual(result3.settings?.topP, 0.85);
+  });
+
+  await t.test('should handle invalid numeric parameters', async () => {
+    const result1 = await handleSlashCommand('/ctx-size invalid', mockSession, mockSettings);
+    assert.strictEqual(result1.settings?.ctxSize, undefined);
+
+    const result2 = await handleSlashCommand('/max-size notanumber', mockSession, mockSettings);
+    assert.strictEqual(result2.settings?.maxTokens, undefined);
+
+    const result3 = await handleSlashCommand('/top_n abc', mockSession, mockSettings);
+    assert.strictEqual(result3.settings?.topN, undefined);
+  });
 });
 
