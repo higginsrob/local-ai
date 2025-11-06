@@ -6,20 +6,30 @@ import type { InteractiveOptions } from '../types/cli.ts';
 import { Storage } from './storage.ts';
 import { ConfigManager } from './config.ts';
 import { DockerAIClient } from './docker-ai.ts';
-import { MCPManager } from './mcp-client.ts';
-import { ToolManager } from './tool-manager.ts';
 import { StreamHandler } from './stream-handler.ts';
 import { handleSlashCommand } from './slash-commands.ts';
 import { buildSystemPrompt } from './prompt-builder.ts';
+import { DockerModelManager } from './docker-model-manager.ts';
+
+// Override prompts rendering to show only '›' in cyan
+// We need to patch the internal style module
+try {
+  const promptsStyle = require('prompts/lib/util/style');
+  promptsStyle.symbol = () => ''; // Remove the '?' symbol
+  // promptsStyle.delimiter = '›'; // Set delimiter to cyan '›'
+} catch {
+  // Fallback if internal structure changes
+}
 
 export async function startInteractive(
   model: string,
   options: InteractiveOptions,
   session: Session
 ): Promise<void> {
-  console.log(chalk.bold(`\n💬 Interactive mode with ${model}`));
-  console.log(chalk.bold(JSON.stringify(options, null, 2)));
-  console.log(chalk.gray('Type /help for commands, /quit to exit, or press Ctrl+C\n'));
+  if (options.debug) {
+    console.log(chalk.bold(JSON.stringify(options, null, 2)));
+  }
+  console.log(chalk.gray('Type /help for commands, /quit to exit, or press Ctrl+C'));
 
   const storage = new Storage();
   await storage.init();
@@ -28,20 +38,50 @@ export async function startInteractive(
   const endpoint = await configManager.getLlamaCppEndpoint();
 
   const client = new DockerAIClient(endpoint);
-  const mcpManager = new MCPManager();
-  const toolManager = new ToolManager(mcpManager);
+  const modelManager = new DockerModelManager(storage);
 
   let settings = { ...options };
   let currentSession = session;
   let shouldExit = false;
 
+  // Check if agent is already locked by another terminal
+  if (!session.agentName) {
+    console.error(chalk.red('Session must have an agent name'));
+    process.exit(1);
+  }
+
+  const isLocked = await storage.isAgentLocked(session.agentName);
+  if (isLocked) {
+    // Agent is busy in another terminal - return error
+    console.log(chalk.red(`\n⚠️  ${session.agentName} is currently busy helping another user.`));
+    console.log(chalk.yellow('Please try again in a few moments.\n'));
+    process.exit(1);
+  }
+
+  // Lock the agent (not the session)
+  await storage.lockAgent(session.agentName);
+
+  // Load model with initial parameters
+  try {
+    await modelManager.loadModel(model, {
+      ctxSize: settings.ctxSize,
+      temperature: settings.temperature,
+      topP: settings.topP,
+      topK: settings.topN,
+    });
+  } catch (error) {
+    console.error(chalk.red('Failed to load model. Continuing anyway...'));
+  }
+
   // Handle Ctrl+C gracefully
   const handleSigInt = async () => {
     if (!shouldExit) {
       shouldExit = true;
-      console.log(chalk.yellow('\n\n⚠ Interrupted. Saving session...'));
-      await storage.saveSession(currentSession);
-      console.log(chalk.green('✓ Session saved'));
+      console.log(chalk.yellow('\n\n⚠ Interrupted.'));
+      if (currentSession.agentName) {
+        await storage.unlockAgent(currentSession.agentName);
+      }
+      await modelManager.unloadModel(model);
       console.log(chalk.gray('Goodbye!\n'));
       process.exit(0);
     }
@@ -55,7 +95,7 @@ export async function startInteractive(
       const response = await prompts({
         type: 'text',
         name: 'input',
-        message: chalk.blue('>'),
+        message: '',
       }, {
         onCancel: async () => {
           // This fires when user presses Ctrl+C in prompts
@@ -86,22 +126,81 @@ export async function startInteractive(
           currentSession = result.session;
         }
         
+        // Handle agent switching
+        if (result.switchToAgent) {
+          // Clean up current session without goodbye message
+          shouldExit = true; // Mark that we're switching, not exiting
+          if (currentSession.agentName) {
+            await storage.unlockAgent(currentSession.agentName);
+            currentSession.agentName = ''; // Clear to prevent double cleanup
+          }
+          await modelManager.unloadModel(model);
+          process.off('SIGINT', handleSigInt);
+          
+          // Load new agent and start new session
+          const { runCommand } = await import('../commands/run.js');
+          await runCommand(result.switchToAgent);
+          return; // Exit after new session ends
+        }
+        
+        // Handle meeting switching
+        if (result.switchToMeeting) {
+          // Clean up current session without goodbye message
+          shouldExit = true; // Mark that we're switching, not exiting
+          if (currentSession.agentName) {
+            await storage.unlockAgent(currentSession.agentName);
+            currentSession.agentName = ''; // Clear to prevent double cleanup
+          }
+          await modelManager.unloadModel(model);
+          process.off('SIGINT', handleSigInt);
+          
+          // Start meeting
+          const { meetingCommand } = await import('../commands/meeting.js');
+          await meetingCommand(result.switchToMeeting);
+          return; // Exit after meeting ends
+        }
+        
+        // Reconfigure model if parameters changed
+        if (result.modelReloadRequired) {
+          try {
+            await modelManager.reconfigureModel(model, {
+              ctxSize: settings.ctxSize,
+              temperature: settings.temperature,
+              topP: settings.topP,
+              topK: settings.topN,
+            });
+          } catch (error) {
+            console.error(chalk.red('Failed to reconfigure model. Continuing with current settings...'));
+          }
+        }
+        
         continue;
       }
 
       // Handle regular user input
-      await handleUserMessage(input, currentSession, settings, client, toolManager, storage, configManager);
+      await handleUserMessage(input, currentSession, settings, client, storage, configManager);
     }
 
-    // Normal exit - save session
-    if (!shouldExit) {
-      await storage.saveSession(currentSession);
-      console.log(chalk.green('\n✓ Session saved'));
+    // Normal exit - unlock agent (skip if we already cleaned up for a switch)
+    if (!shouldExit && currentSession.agentName) {
+      await storage.unlockAgent(currentSession.agentName);
+      await modelManager.unloadModel(model);
       console.log(chalk.gray('Goodbye!\n'));
     }
   } finally {
-    // Clean up signal handler
-    process.off('SIGINT', handleSigInt);
+    // Clean up signal handler and unlock agent (skip unlock if already done)
+    if (currentSession.agentName) {
+      try {
+        await storage.unlockAgent(currentSession.agentName);
+      } catch {
+        // Already unlocked, ignore
+      }
+    }
+    try {
+      process.off('SIGINT', handleSigInt);
+    } catch {
+      // Handler already removed, ignore
+    }
   }
 }
 
@@ -110,7 +209,6 @@ async function handleUserMessage(
   session: Session,
   settings: InteractiveOptions,
   client: DockerAIClient,
-  toolManager: ToolManager,
   storage: Storage,
   configManager: ConfigManager
 ): Promise<void> {
@@ -120,9 +218,6 @@ async function handleUserMessage(
     content: input,
   };
   session.messages.push(userMessage);
-
-  // Get available tools
-  const tools = await toolManager.getAvailableTools();
 
   // Load agent and profile for system prompt
   const currentAgentName = await configManager.getCurrentAgent();
@@ -150,10 +245,30 @@ async function handleUserMessage(
     }))
   ];
 
+  // Create abort controller for Ctrl+D handling
+  const abortController = new AbortController();
+  let aborted = false;
+
+  // Disable stdin and set up Ctrl+D handler
+  const wasRaw = process.stdin.isRaw;
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  
+  const onData = (key: Buffer) => {
+    // Ctrl+D is ASCII 4
+    if (key.length === 1 && key[0] === 4) {
+      aborted = true;
+      abortController.abort();
+      console.log(chalk.yellow('\n\n⚠ Aborting request...'));
+    }
+  };
+
+  process.stdin.on('data', onData);
+
   try {
     // Stream response
     let assistantMessage = '';
-    let toolCalls: any[] = [];
+    let lastMetrics: { usage?: any; timings?: any } | undefined;
 
     const streamHandler = new StreamHandler({
       onToken: (token: string) => {
@@ -163,158 +278,125 @@ async function handleUserMessage(
       onDone: () => {
         process.stdout.write('\n');
       },
-      onToolCalls: (calls: any[]) => {
-        toolCalls = calls;
+      onMetrics: (metrics: { usage?: any; timings?: any }) => {
+        lastMetrics = metrics;
       },
     });
 
     const stream = client.chatCompletionStream({
       model: settings.model,
       messages,
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: settings.toolChoice as any,
       max_tokens: settings.maxTokens,
       temperature: settings.temperature,
       top_p: settings.topP,
       top_k: settings.topN,
       stream: true,
-    });
+    }, abortController.signal);
 
     for await (const chunk of stream) {
       streamHandler.handleChunk(chunk);
     }
 
-    // Add assistant message to session
-    const message: Message = {
-      role: 'assistant',
-      content: assistantMessage,
-    };
+    // Only save message if not aborted
+    if (!aborted && assistantMessage) {
+      // Add assistant message to session
+      const message: Message = {
+        role: 'assistant',
+        content: assistantMessage,
+      };
 
-    if (toolCalls.length > 0) {
-      message.tool_calls = toolCalls;
-    }
+      session.messages.push(message);
+      session.updatedAt = new Date().toISOString();
 
-    session.messages.push(message);
-    session.updatedAt = new Date().toISOString();
+      // Store performance metrics
+      if (lastMetrics?.timings || lastMetrics?.usage) {
+        // Calculate token counts from timings if usage isn't available (streaming mode)
+        const promptTokens = lastMetrics.usage?.prompt_tokens || lastMetrics.timings?.prompt_n || 0;
+        const completionTokens = lastMetrics.usage?.completion_tokens || lastMetrics.timings?.predicted_n || 0;
+        const totalTokens = lastMetrics.usage?.total_tokens || (promptTokens + completionTokens);
 
-    // Handle tool calls if any
-    if (toolCalls.length > 0) {
-      await handleToolCalls(toolCalls, session, settings, client, toolManager, storage, configManager);
+        session.metadata.lastRequestStats = {
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          contextWindowSize: settings.ctxSize,
+          timings: lastMetrics.timings,
+        };
+      }
+
+      // Auto-save session after every response
+      await storage.saveSession(session);
     }
 
   } catch (error) {
-    console.error(chalk.red('\n✗ Error:'), error instanceof Error ? error.message : 'Unknown error');
-  }
-}
-
-async function handleToolCalls(
-  toolCalls: any[],
-  session: Session,
-  settings: InteractiveOptions,
-  client: DockerAIClient,
-  toolManager: ToolManager,
-  storage: Storage,
-  configManager: ConfigManager
-): Promise<void> {
-  if (settings.debug) {
-    console.log(chalk.gray(`\n🔧 Executing ${toolCalls.length} tool call(s)...`));
-  }
-
-  // Execute tool calls
-  const results = await toolManager.executeToolCalls(toolCalls);
-
-  // Add tool results to session
-  for (const result of results) {
-    const toolMessage: Message = {
-      role: 'tool',
-      content: result.content,
-      tool_call_id: result.tool_call_id,
-    };
-    session.messages.push(toolMessage);
-  }
-
-  session.metadata.toolCalls += toolCalls.length;
-
-  if (settings.debug) {
-    console.log(chalk.gray('✓ Tool calls complete\n'));
-  }
-
-  // Continue conversation with tool results
-  await continueWithToolResults(session, settings, client, toolManager, storage, configManager);
-}
-
-async function continueWithToolResults(
-  session: Session,
-  settings: InteractiveOptions,
-  client: DockerAIClient,
-  toolManager: ToolManager,
-  storage: Storage,
-  configManager: ConfigManager
-): Promise<void> {
-  const tools = await toolManager.getAvailableTools();
-  
-  // Load agent and profile for system prompt
-  const currentAgentName = await configManager.getCurrentAgent();
-  const currentProfileName = await configManager.getCurrentProfile();
-  
-  const agent = currentAgentName ? await storage.loadAgent(currentAgentName) : null;
-  const profileData = await storage.loadProfile(currentProfileName);
-
-  // Build system prompt with agent and user attributes
-  const baseSystemPrompt = agent?.systemPrompt || 'You are a helpful AI assistant.';
-  const systemPrompt = buildSystemPrompt(baseSystemPrompt, agent, profileData);
-
-  // Prepare messages with system prompt first
-  const messages = [
-    {
-      role: 'system' as const,
-      content: systemPrompt,
-    },
-    ...session.messages.map(m => ({
-      role: m.role,
-      content: m.content,
-      tool_calls: m.tool_calls,
-      tool_call_id: m.tool_call_id,
-    }))
-  ];
-
-  try {
-    let assistantMessage = '';
-
-    const streamHandler = new StreamHandler({
-      onToken: (token: string) => {
-        process.stdout.write(chalk.green(token));
-        assistantMessage += token;
-      },
-      onDone: () => {
-        process.stdout.write('\n');
-      },
-    });
-
-    const stream = client.chatCompletionStream({
-      model: settings.model,
-      messages,
-      tools: tools.length > 0 ? tools : undefined,
-      max_tokens: settings.maxTokens,
-      temperature: settings.temperature,
-      top_p: settings.topP,
-      top_k: settings.topN,
-      stream: true,
-    });
-
-    for await (const chunk of stream) {
-      streamHandler.handleChunk(chunk);
+    // Don't show error if user aborted
+    if (aborted) {
+      // Remove the user message since we're aborting
+      session.messages.pop();
+      return;
     }
 
-    // Add final assistant message
-    session.messages.push({
-      role: 'assistant',
-      content: assistantMessage,
-    });
-    session.updatedAt = new Date().toISOString();
-
-  } catch (error) {
-    console.error(chalk.red('\n✗ Error:'), error instanceof Error ? error.message : 'Unknown error');
+    let errorMsg = 'Unknown error';
+    if (error instanceof Error) {
+      errorMsg = error.message;
+    }
+    // Show full error details if available (axios errors)
+    if (error && typeof error === 'object' && 'response' in error) {
+      const axiosError = error as any;
+      if (axiosError.response?.data) {
+        let errorData = axiosError.response.data;
+        
+        // Handle IncomingMessage with buffer inside _readableState
+        if (errorData._readableState?.buffer && errorData._readableState.buffer.length > 0) {
+          const buffers = errorData._readableState.buffer;
+          errorData = Buffer.concat(buffers).toString('utf-8');
+        } else if (Buffer.isBuffer(errorData)) {
+          errorData = errorData.toString('utf-8');
+        }
+        
+        if (typeof errorData === 'string') {
+          try {
+            errorData = JSON.parse(errorData);
+            
+            // Special handling for context size errors
+            if (errorData.error?.type === 'exceed_context_size_error') {
+              const nPromptTokens = errorData.error.n_prompt_tokens;
+              const nCtx = errorData.error.n_ctx;
+              const recommendedSize = Math.ceil((nPromptTokens + 500) / 100) * 100; // Round up to nearest 100, add buffer
+              
+              console.error(chalk.red('\n⚠️  Context Window Exceeded!\n'));
+              console.log(`Your request needs ${chalk.cyan(nPromptTokens)} tokens, but your context window is only ${chalk.cyan(nCtx)} tokens.`);
+              console.log(chalk.yellow('\nOptions to fix this:\n'));
+              console.log(chalk.bold('1. Increase context window size:'));
+              console.log(chalk.cyan(`   /ctx-size ${recommendedSize}`));
+              console.log(`   (This will give you ~${recommendedSize - nPromptTokens} tokens for the response)\n`);
+              console.log(chalk.bold('2. Compact your conversation history:'));
+              console.log(chalk.cyan('   /compact'));
+              console.log('   (This will summarize past messages to reduce token usage)\n');
+            } else {
+              // Other errors - show full JSON
+              console.error(chalk.red('\n✗ Error:'), JSON.stringify(errorData, null, 2));
+            }
+          } catch {
+            // Not valid JSON, just display as string
+            console.error(chalk.red('\n✗ Error:'), errorData);
+          }
+        } else {
+          // Object but not string or buffer - just show status
+          console.error(chalk.red('\n✗ Error:'), `HTTP ${axiosError.response?.status || '?'}: ${errorMsg}`);
+        }
+        return;
+      }
+    }
+    console.error(chalk.red('\n✗ Error:'), errorMsg);
+  } finally {
+    // Always clean up stdin listener and restore state
+    process.stdin.off('data', onData);
+    process.stdin.pause();
+    if (wasRaw !== undefined) {
+      process.stdin.setRawMode(wasRaw);
+    }
   }
 }
+
 

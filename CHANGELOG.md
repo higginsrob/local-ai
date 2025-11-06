@@ -49,5 +49,10 @@
 - Session now stores `agentName` for better context tracking
 
 ### Fixed
+- **Names with slashes in file paths** - Agent, profile, and session names with slashes (like `openai/gpt-4`) now work correctly
+  - Added sanitization to replace slashes with double underscores in file names
+  - File stored as `openai__gpt-4.json` but displayed as `openai/gpt-4`
+  - Fully reversible transformation for listing operations
+  - Added comprehensive tests for slash handling
 - Interactive mode now properly handles Ctrl+C interruption
 - Model names now display correctly from `docker model ls` output

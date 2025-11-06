@@ -80,10 +80,8 @@ describe('Storage', () => {
     test('should save and load agent', async () => {
       const agent = {
         name: 'coder',
-        model: 'llama3',
+        model: 'ai/llama3.2:latest',
         systemPrompt: 'You are a helpful assistant',
-        tools: ['filesystem'],
-        mcpServers: ['docker://mcp-filesystem'],
         modelParams: {
           ctxSize: 4096,
           maxTokens: 2048,
@@ -100,6 +98,31 @@ describe('Storage', () => {
       assert.deepStrictEqual(loaded, agent);
     });
 
+    test('should handle agent names with slashes', async () => {
+      const agent = {
+        name: 'openai/gpt-4',
+        model: 'openai/gpt-4',
+        systemPrompt: 'You are a helpful assistant',
+        modelParams: {
+          ctxSize: 4096,
+          maxTokens: 2048,
+          temperature: 0.7,
+          topP: 0.9,
+          topN: 40,
+        },
+        attributes: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await storage.saveAgent(agent);
+      const loaded = await storage.loadAgent('openai/gpt-4');
+      assert.deepStrictEqual(loaded, agent);
+      
+      // Verify it appears in the list with the original name
+      const agents = await storage.listAgents();
+      assert.ok(agents.includes('openai/gpt-4'));
+    });
+
     test('should list agents', async () => {
       const agents = await storage.listAgents();
       assert.ok(agents.includes('coder'));
@@ -109,6 +132,12 @@ describe('Storage', () => {
       await storage.deleteAgent('coder');
       const agents = await storage.listAgents();
       assert.ok(!agents.includes('coder'));
+    });
+
+    test('should delete agent with slash in name', async () => {
+      await storage.deleteAgent('openai/gpt-4');
+      const agents = await storage.listAgents();
+      assert.ok(!agents.includes('openai/gpt-4'));
     });
   });
 

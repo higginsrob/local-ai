@@ -30,16 +30,24 @@ export class DockerAIClient {
   }
 
   async *chatCompletionStream(
-    request: ChatCompletionRequest
+    request: ChatCompletionRequest,
+    signal?: AbortSignal
   ): AsyncGenerator<CompletionChunk, void, unknown> {
     const response = await this.client.post('/engines/llama.cpp/v1/chat/completions', request, {
       responseType: 'stream',
+      signal,
     });
 
     const stream = response.data;
     let buffer = '';
 
     for await (const chunk of stream) {
+      // Check if aborted
+      if (signal?.aborted) {
+        stream.destroy();
+        throw new Error('Request aborted by user');
+      }
+
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';

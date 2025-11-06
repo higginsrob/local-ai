@@ -30,5 +30,22 @@ export interface ToolCall {
 export interface SessionMetadata {
   tokenCount: number;
   toolCalls: number;
+  lastRequestStats?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    contextWindowSize: number;
+    timings?: {
+      cache_n?: number;
+      predicted_ms?: number;
+      predicted_n?: number;
+      predicted_per_second?: number;
+      predicted_per_token_ms?: number;
+      prompt_ms?: number;
+      prompt_n?: number;
+      prompt_per_second?: number;
+      prompt_per_token_ms?: number;
+    };
+  };
 }
 

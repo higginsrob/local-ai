@@ -14,10 +14,8 @@ The system now dynamically builds a complete system prompt by combining:
 ```json
 {
   "name": "coder",
-  "model": "llama3",
+  "model": "ai/llama3.2:latest",
   "systemPrompt": "You are an expert coding assistant specialized in modern web development.",
-  "tools": ["filesystem", "search", "git"],
-  "mcpServers": ["docker://mcp-filesystem"],
   "modelParams": {
     "ctxSize": 8192,
     "maxTokens": 4096,

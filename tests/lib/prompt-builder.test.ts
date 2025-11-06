@@ -8,10 +8,8 @@ describe('buildSystemPrompt', () => {
   test('should return base prompt when no attributes', () => {
     const agent: Agent = {
       name: 'test',
-      model: 'llama3',
+      model: 'ai/llama3.2:latest',
       systemPrompt: 'You are a helpful assistant',
-      tools: [],
-      mcpServers: [],
       modelParams: {
         ctxSize: 4096,
         maxTokens: 2048,
@@ -38,10 +36,8 @@ describe('buildSystemPrompt', () => {
   test('should include agent attributes', () => {
     const agent: Agent = {
       name: 'test',
-      model: 'llama3',
+      model: 'ai/llama3.2:latest',
       systemPrompt: 'You are a helpful assistant',
-      tools: [],
-      mcpServers: [],
       modelParams: {
         ctxSize: 4096,
         maxTokens: 2048,
@@ -94,10 +90,8 @@ describe('buildSystemPrompt', () => {
   test('should include both agent and user attributes', () => {
     const agent: Agent = {
       name: 'test',
-      model: 'llama3',
+      model: 'ai/llama3.2:latest',
       systemPrompt: 'You are a helpful assistant',
-      tools: [],
-      mcpServers: [],
       modelParams: {
         ctxSize: 4096,
         maxTokens: 2048,

@@ -24,10 +24,6 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     await newAgent(storage, configManager, args[0]);
   } else if (subcommand === 'remove') {
     await removeAgent(storage, args[0]);
-  } else if (subcommand === 'enable-tool') {
-    await enableTool(storage, configManager, args[0]);
-  } else if (subcommand === 'disable-tool') {
-    await disableTool(storage, configManager, args[0]);
   } else if (subcommand === 'add-attribute') {
     await addAttribute(storage, configManager, args[0], args.slice(1).join(' '));
   } else if (subcommand === 'remove-attribute') {
@@ -42,6 +38,8 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     await exportAgent(storage, args[0], args[1]);
   } else if (subcommand === 'compact') {
     await compactSession(storage, configManager, args[0]);
+  } else if (subcommand === 'status') {
+    await showSessionStatus(storage, configManager);
   } else {
     console.error(chalk.red(`Unknown subcommand: ${subcommand}`));
     console.log('\nAvailable subcommands:');
@@ -51,9 +49,8 @@ export async function agentCommand(subcommand?: string, args: string[] = []): Pr
     console.log('  edit <name>                                - Edit agent in default editor');
     console.log('  remove <name>                              - Remove agent');
     console.log('  install                                    - Install agent executables to PATH');
+    console.log('  status                                     - Show current session performance status');
     console.log('  compact <session-id>                       - Compact a session by summarizing');
-    console.log('  enable-tool <tool-name>                    - Enable tool');
-    console.log('  disable-tool <tool-name>                   - Disable tool');
     console.log('  add-attribute <name> <value>               - Add attribute');
     console.log('  remove-attribute <name>                    - Remove attribute');
     console.log('  import <file>                              - Import agent from JSON');
@@ -72,10 +69,13 @@ async function listAgents(storage: Storage): Promise<void> {
     console.log('\nCreate an agent with: ai agent new <name>');
   } else {
     for (const name of agents) {
-      const agent = await storage.loadAgent(name);
-      console.log(`  ${chalk.cyan(name)}`);
-      console.log(`    Model: ${agent.model}`);
-      console.log(`    Tools: ${agent.tools.length > 0 ? agent.tools.join(', ') : '(none)'}`);
+      try {
+        const agent = await storage.loadAgent(name);
+        console.log(`  ${chalk.cyan(name)}`);
+        console.log(`    Model: ${agent.model}`);
+      } catch (error) {
+        console.log(`  ${chalk.cyan(name)} ${chalk.red('(invalid)')}`);
+      }
     }
   }
   console.log();
@@ -104,20 +104,6 @@ async function showAgent(storage: Storage, name?: string): Promise<void> {
   console.log(`  Temperature: ${agent.modelParams.temperature}`);
   console.log(`  Top P: ${agent.modelParams.topP}`);
   console.log(`  Top N: ${agent.modelParams.topN}`);
-  
-  console.log(chalk.bold('\nTools:'));
-  if (agent.tools.length === 0) {
-    console.log(chalk.gray('  (none)'));
-  } else {
-    agent.tools.forEach(tool => console.log(`  - ${tool}`));
-  }
-  
-  console.log(chalk.bold('\nMCP Servers:'));
-  if (agent.mcpServers.length === 0) {
-    console.log(chalk.gray('  (none)'));
-  } else {
-    agent.mcpServers.forEach(server => console.log(`  - ${server}`));
-  }
   
   console.log(chalk.bold('\nAttributes:'));
   if (Object.keys(agent.attributes).length === 0) {
@@ -148,7 +134,7 @@ async function newAgent(
       type: 'text',
       name: 'model',
       message: 'Model:',
-      initial: 'llama3',
+      initial: 'ai/llama3.2:latest',
     },
     {
       type: 'text',
@@ -185,10 +171,8 @@ async function newAgent(
 
   const agent: Agent = {
     name: agentName,
-    model: responses.model || 'llama3',
+    model: responses.model || 'ai/llama3.2:latest',
     systemPrompt: responses.systemPrompt || 'You are a helpful AI assistant.',
-    tools: [],
-    mcpServers: [],
     modelParams: {
       ctxSize: responses.ctxSize || 4096,
       maxTokens: responses.maxTokens || 2048,
@@ -214,65 +198,6 @@ async function removeAgent(storage: Storage, name?: string): Promise<void> {
 
   await storage.deleteAgent(name);
   console.log(chalk.green(`✓ Removed agent: ${name}`));
-}
-
-async function enableTool(
-  storage: Storage,
-  configManager: ConfigManager,
-  toolName?: string
-): Promise<void> {
-  if (!toolName) {
-    console.error(chalk.red('Tool name is required'));
-    console.log('Usage: ai agent enable-tool <tool-name>');
-    process.exit(1);
-  }
-
-  const currentAgent = await configManager.getCurrentAgent();
-  if (!currentAgent) {
-    console.error(chalk.red('No agent selected. Use: ai agent new <name>'));
-    process.exit(1);
-  }
-
-  const agent = await storage.loadAgent(currentAgent);
-  
-  if (!agent.tools.includes(toolName)) {
-    agent.tools.push(toolName);
-    agent.updatedAt = new Date().toISOString();
-    await storage.saveAgent(agent);
-    console.log(chalk.green(`✓ Enabled tool ${toolName} for agent ${agent.name}`));
-  } else {
-    console.log(chalk.yellow(`Tool ${toolName} already enabled`));
-  }
-}
-
-async function disableTool(
-  storage: Storage,
-  configManager: ConfigManager,
-  toolName?: string
-): Promise<void> {
-  if (!toolName) {
-    console.error(chalk.red('Tool name is required'));
-    console.log('Usage: ai agent disable-tool <tool-name>');
-    process.exit(1);
-  }
-
-  const currentAgent = await configManager.getCurrentAgent();
-  if (!currentAgent) {
-    console.error(chalk.red('No agent selected. Use: ai agent new <name>'));
-    process.exit(1);
-  }
-
-  const agent = await storage.loadAgent(currentAgent);
-  
-  const index = agent.tools.indexOf(toolName);
-  if (index !== -1) {
-    agent.tools.splice(index, 1);
-    agent.updatedAt = new Date().toISOString();
-    await storage.saveAgent(agent);
-    console.log(chalk.green(`✓ Disabled tool ${toolName} for agent ${agent.name}`));
-  } else {
-    console.log(chalk.yellow(`Tool ${toolName} not found`));
-  }
 }
 
 async function addAttribute(
@@ -369,7 +294,9 @@ async function editAgent(storage: Storage, name?: string): Promise<void> {
     process.exit(1);
   }
 
-  const agentPath = path.join(storage.getBaseDir(), 'agents', `${name}.json`);
+  // Sanitize the name for file path (replace slashes with double underscores)
+  const sanitizedName = name.replace(/\//g, '__');
+  const agentPath = path.join(storage.getBaseDir(), 'agents', `${sanitizedName}.json`);
   await openInEditor(agentPath);
   
   // Validate the JSON after editing
@@ -515,6 +442,100 @@ async function openInEditor(filePath: string): Promise<void> {
   });
 }
 
+async function showSessionStatus(
+  storage: Storage,
+  configManager: ConfigManager
+): Promise<void> {
+  // Get current agent's session
+  const currentAgent = await configManager.getCurrentAgent();
+  
+  if (!currentAgent) {
+    console.error(chalk.red('No active agent'));
+    console.log('\nStart an interactive session with: ai run <agent>');
+    process.exit(1);
+  }
+  
+  const sessionId = `session-${currentAgent}`;
+
+  try {
+    const session = await storage.loadSession(sessionId);
+    const stats = session.metadata.lastRequestStats;
+
+    if (!stats) {
+      console.log(chalk.yellow('⚠ No performance data available yet.'));
+      console.log(chalk.gray('  Make at least one request to see stats.'));
+      return;
+    }
+
+    console.log(chalk.bold('\nPerformance Metrics:'));
+    
+    if (stats.timings?.predicted_per_second !== undefined) {
+      console.log(`  Generation Speed: ${chalk.cyan(stats.timings.predicted_per_second.toFixed(2))} tokens/sec`);
+    }
+    
+    if (stats.timings?.prompt_per_second !== undefined) {
+      console.log(`  Prompt Processing: ${chalk.cyan(stats.timings.prompt_per_second.toFixed(2))} tokens/sec`);
+    }
+    
+    if (stats.timings?.predicted_ms !== undefined) {
+      console.log(`  Generation Time: ${chalk.cyan((stats.timings.predicted_ms / 1000).toFixed(2))}s`);
+    }
+    
+    if (stats.timings?.prompt_ms !== undefined) {
+      console.log(`  Prompt Time: ${chalk.cyan((stats.timings.prompt_ms / 1000).toFixed(2))}s`);
+    }
+    
+    console.log();
+
+    // Display token breakdown
+    console.log(chalk.bold('Token Usage:'));
+    console.log(`  Prompt Tokens: ${chalk.cyan(stats.promptTokens)}`);
+    if (stats.timings?.cache_n !== undefined) {
+      console.log(`  Cached Tokens: ${chalk.cyan(stats.timings.cache_n)}`);
+    }
+    console.log(`  Completion Tokens: ${chalk.cyan(stats.completionTokens)}`);
+    console.log(`  Total Tokens: ${chalk.cyan(stats.totalTokens)}\n`);
+
+    // Calculate context usage percentage
+    const usagePercent = (stats.totalTokens / stats.contextWindowSize) * 100;
+
+    // Display context window usage
+    console.log(`(used ${chalk.cyan(stats.totalTokens)} of ${chalk.cyan(stats.contextWindowSize)} context window)`);
+    
+    // Create progress bar
+    const terminalWidth = process.stdout.columns || 80;
+    const barWidth = Math.min(60, terminalWidth - 10); // Reserve space for padding
+    const filledWidth = Math.round((usagePercent / 100) * barWidth);
+    const emptyWidth = barWidth - filledWidth;
+
+    // Choose color based on percentage
+    let barColor: typeof chalk.yellow;
+    if (usagePercent <= 50) {
+      barColor = chalk.yellow;
+    } else if (usagePercent <= 75) {
+      barColor = chalk.hex('#FFA500'); // Orange
+    } else {
+      barColor = chalk.red;
+    }
+
+    // Build progress bar
+    const filled = '█'.repeat(filledWidth);
+    const empty = '░'.repeat(emptyWidth);
+    const progressBar = barColor(filled) + chalk.gray(empty);
+    
+    console.log(progressBar);
+    console.log(chalk.gray(`${usagePercent.toFixed(1)}% of context window used\n`));
+
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('ENOENT')) {
+      console.error(chalk.red(`✗ Session not found: ${sessionId}`));
+    } else {
+      console.error(chalk.red('✗ Error loading session:'), error instanceof Error ? error.message : 'Unknown error');
+    }
+    process.exit(1);
+  }
+}
+
 async function compactSession(
   storage: Storage,
   configManager: ConfigManager,
@@ -547,7 +568,7 @@ async function compactSession(
     const currentAgentName = await configManager.getCurrentAgent();
     const agent = currentAgentName ? await storage.loadAgent(currentAgentName) : null;
     
-    const model = agent?.model || 'llama3';
+    const model = agent?.model || 'ai/llama3.2:latest';
 
     // Create a summarization prompt
     const summaryPrompt = `Please provide a concise summary of the conversation so far. Include:

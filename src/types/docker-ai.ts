@@ -13,12 +13,11 @@ export interface CompletionRequest {
 export interface ChatCompletionRequest {
   model: string;
   messages: ChatMessage[];
-  tools?: Tool[];
-  tool_choice?: 'auto' | 'none' | { type: 'function'; function: { name: string } };
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
   top_k?: number;
+  n_ctx?: number;  // Context window size
   stream?: boolean;
 }
 
@@ -54,6 +53,22 @@ export interface CompletionChunk {
   created: number;
   model: string;
   choices: CompletionChoice[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  timings?: {
+    cache_n?: number;
+    predicted_ms?: number;
+    predicted_n?: number;
+    predicted_per_second?: number;
+    predicted_per_token_ms?: number;
+    prompt_ms?: number;
+    prompt_n?: number;
+    prompt_per_second?: number;
+    prompt_per_token_ms?: number;
+  };
 }
 
 export interface CompletionChoice {
@@ -77,6 +92,17 @@ export interface ChatCompletionResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+  };
+  timings?: {
+    cache_n?: number;
+    predicted_ms?: number;
+    predicted_n?: number;
+    predicted_per_second?: number;
+    predicted_per_token_ms?: number;
+    prompt_ms?: number;
+    prompt_n?: number;
+    prompt_per_second?: number;
+    prompt_per_token_ms?: number;
   };
 }
 

@@ -20,7 +20,7 @@ A powerful CLI tool for managing a fleet of local AI assistants powered by Docke
 
 Traditional approach:
 ```bash
-ai run llama3 --ctx-size 8192 --temperature 0.8 --tools filesystem,search "help me code"
+ai run llama3 --ctx-size 8192 --temperature 0.8 "help me code"
 ```
 
 With agents:
@@ -126,9 +126,6 @@ ai run coder --temperature 0.9 --max-tokens 1024 --debug
 - `--temperature <temp>` - Temperature 0-2 (default: from agent or 0.7)
 - `--top-p <p>` - Top P 0-1 (default: from agent or 0.9)
 - `--top-n <n>` - Top N (default: from agent or 40)
-- `--mcp-servers <servers>` - Enabled MCP servers (default: from agent or none)
-- `--tools <tools>` - Enabled tools (default: from agent or none)
-- `--thinking` - Show model thinking
 - `--debug` - Show debug information
 
 **Note:** When using an agent name, all settings default to the agent's configuration. Command-line options override agent settings.
@@ -185,10 +182,6 @@ ai agent edit coder
 # Remove agent
 ai agent remove coder
 
-# Enable/disable tools
-ai agent enable-tool filesystem
-ai agent disable-tool search
-
 # Add custom attributes
 ai agent add-attribute specialty "code-review"
 ai agent remove-attribute specialty
@@ -200,6 +193,9 @@ ai agent import ./coder-agent.json
 # Install agents as executables
 ai agent install
 # Now you can run: coder "your prompt"
+
+# Show current session performance status
+ai agent status
 ```
 
 ### `ai session`
@@ -233,6 +229,7 @@ When in interactive mode (`ai run <model>`), you can use these commands:
 
 - `/help` - Show help for slash commands
 - `/clear` - Clear terminal screen
+- `/status` - Show performance metrics and context window usage
 - `/save [name]` - Save current session
 - `/load <name>` - Load a previous session
 - `/compact` - Summarize and compact session
@@ -242,7 +239,6 @@ When in interactive mode (`ai run <model>`), you can use these commands:
 - `/temperature <float>` - Set temperature
 - `/top_p <float>` - Set top_p
 - `/top_n <int>` - Set top_n
-- `/thinking <bool>` - Enable/disable thinking mode
 - `/debug <bool>` - Enable/disable debug mode
 - `/quit`, `/q`, `/exit`, `/e`, `/x` - Exit interactive mode
 - **Ctrl+C** - Exit and save session gracefully
@@ -357,38 +353,6 @@ docker model ls
 
 # Models are automatically served via llama.cpp at:
 # http://localhost:12434/engines/llama.cpp/v1/chat/completions
-```
-
-## MCP (Model Context Protocol)
-
-MCP enables AI models to use external tools and services.
-
-### Docker MCP Commands
-
-```bash
-# List available MCP servers
-docker mcp catalog ls
-
-# Install an MCP server
-docker mcp install filesystem
-
-# List installed servers
-docker mcp ls
-
-# Start/stop servers
-docker mcp start filesystem
-docker mcp stop filesystem
-```
-
-### Using MCP Tools
-
-```bash
-# Run with specific MCP servers
-ai run llama3 --mcp-servers filesystem,search
-
-# Enable tools for an agent
-ai agent enable-tool filesystem
-ai agent enable-tool search
 ```
 
 ## Development

@@ -62,7 +62,7 @@ export async function statusCommand(): Promise<void> {
       }
     } else {
       console.log(`  ${chalk.yellow('⚠')} No AI models found`);
-      console.log(`    Run: docker model pull llama3`);
+      console.log(`    Run: docker model pull ai/llama3.2:latest`);
     }
 
     // Check running models

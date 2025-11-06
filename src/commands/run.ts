@@ -1,10 +1,9 @@
 // ai run command
 import chalk from 'chalk';
+import prompts from 'prompts';
 import { Storage } from '../lib/storage.ts';
 import { ConfigManager } from '../lib/config.ts';
 import { DockerAIClient } from '../lib/docker-ai.ts';
-import { MCPManager } from '../lib/mcp-client.ts';
-import { ToolManager } from '../lib/tool-manager.ts';
 import { StreamHandler } from '../lib/stream-handler.ts';
 import { startInteractive } from '../lib/interactive.ts';
 import { buildSystemPrompt } from '../lib/prompt-builder.ts';
@@ -12,7 +11,7 @@ import type { RunOptions, InteractiveOptions } from '../types/cli.ts';
 import type { Session, Message } from '../types/session.ts';
 
 export async function runCommand(
-  agentOrModel?: string,
+  agentName?: string,
   promptParts: string[] = [],
   options: RunOptions = {}
 ): Promise<void> {
@@ -23,69 +22,109 @@ export async function runCommand(
 
   let model: string;
   let agent: any = null;
-  let agentName: string | null = null;
 
-  // If no argument specified, check for current agent
-  if (!agentOrModel) {
-    const currentAgent = await configManager.getCurrentAgent();
-    if (currentAgent) {
-      agent = await storage.loadAgent(currentAgent);
-      agentName = currentAgent;
-      model = agent.model;
-      console.log(chalk.gray(`Using agent: ${currentAgent} (${model})`));
-    } else {
-      console.error(chalk.red('No agent or model specified and no agent selected'));
-      console.log('Usage: ai run <agent|model> [prompt...]');
-      console.log('   or: ai agent new <name>  # to create an agent');
+  // If no argument specified, show interactive agent selector
+  if (!agentName) {
+    const agents = await storage.listAgents();
+    
+    if (agents.length === 0) {
+      console.error(chalk.red('No agents configured'));
+      console.log('\nCreate an agent with: ai agent new <name>');
       process.exit(1);
     }
-  } else {
-    // Check if argument is an agent name
-    try {
-      agent = await storage.loadAgent(agentOrModel);
-      agentName = agentOrModel;
-      model = agent.model;
-      // Set this agent as current
-      await configManager.setCurrentAgent(agentName);
-      console.log(chalk.gray(`Using agent: ${agentName} (${model})`));
-    } catch {
-      // Not an agent, treat as model name
-      model = agentOrModel;
+
+    // Load agent details for the selection menu
+    const agentChoices = [];
+    for (const name of agents) {
+      try {
+        const agentData = await storage.loadAgent(name);
+        agentChoices.push({
+          title: `${name} (${agentData.model})`,
+          value: name,
+          description: agentData.systemPrompt.slice(0, 80) + (agentData.systemPrompt.length > 80 ? '...' : ''),
+        });
+      } catch {
+        // Skip invalid agents
+        continue;
+      }
     }
+
+    if (agentChoices.length === 0) {
+      console.error(chalk.red('No valid agents found'));
+      console.log('\nCreate an agent with: ai agent new <name>');
+      process.exit(1);
+    }
+
+    // Show interactive selection menu
+    const response = await prompts({
+      type: 'select',
+      name: 'agent',
+      message: 'Select an agent:',
+      choices: agentChoices,
+      initial: 0,
+    });
+
+    if (!response.agent) {
+      console.log(chalk.yellow('\nCancelled'));
+      process.exit(0);
+    }
+
+    agentName = response.agent;
+  }
+
+  // At this point, agentName should always be defined
+  if (!agentName) {
+    console.error(chalk.red('No agent specified'));
+    process.exit(1);
+  }
+
+  // Load the agent
+  try {
+    agent = await storage.loadAgent(agentName);
+    model = agent.model;
+    // Set this agent as current
+    await configManager.setCurrentAgent(agentName);
+    console.log(chalk.gray(`Using agent: ${agentName} (${model})`));
+  } catch (error) {
+    console.error(chalk.red(`Agent '${agentName}' not found`));
+    console.log('\nCreate an agent with: ai agent new <name>');
+    console.log('List agents with: ai agent ls');
+    process.exit(1);
   }
 
   // Parse options - use agent config as defaults if available
   const interactiveOptions: InteractiveOptions = {
     model,
-    ctxSize: parseInt(options.ctxSize || (agent?.modelParams.ctxSize.toString()) || '4096'),
-    maxTokens: parseInt(options.maxTokens || (agent?.modelParams.maxTokens.toString()) || '2048'),
-    temperature: parseFloat(options.temperature || (agent?.modelParams.temperature.toString()) || '0.7'),
-    topP: parseFloat(options.topP || (agent?.modelParams.topP.toString()) || '0.9'),
-    topN: parseInt(options.topN || (agent?.modelParams.topN.toString()) || '40'),
-    mcpServers: options.mcpServers ? options.mcpServers.split(',') : (agent?.mcpServers || []),
-    tools: options.tools ? options.tools.split(',') : (agent?.tools || []),
-    toolChoice: options.toolChoice,
-    toolCallMode: options.toolCallMode || 'native',
-    thinking: options.thinking || false,
+    ctxSize: parseInt(options.ctxSize ?? agent?.modelParams?.ctxSize?.toString() ?? '4096'),
+    maxTokens: parseInt(options.maxTokens ?? agent?.modelParams?.maxTokens?.toString() ?? '2048'),
+    temperature: parseFloat(options.temperature ?? agent?.modelParams?.temperature?.toString() ?? '0.7'),
+    topP: parseFloat(options.topP ?? agent?.modelParams?.topP?.toString() ?? '0.9'),
+    topN: parseInt(options.topN ?? agent?.modelParams?.topN?.toString() ?? '40'),
     debug: options.debug || false,
   };
 
-  // Create or load session
+  // Load or create session for this agent
   const currentProfileName = await configManager.getCurrentProfile();
   let session: Session;
 
-  const currentSessionId = await configManager.getCurrentSession();
-  if (currentSessionId) {
-    try {
-      session = await storage.loadSession(currentSessionId);
-      if (interactiveOptions.debug) {
-        console.log(chalk.gray(`Loaded session: ${currentSessionId}`));
-      }
-    } catch {
-      session = createNewSession(currentProfileName, agentName);
+  // Session ID is now deterministic based on agent name
+  const sessionId = `session-${agentName}`;
+  
+  try {
+    session = await storage.loadSession(sessionId);
+    const messageCount = session.messages.length;
+    if (messageCount > 0) {
+      console.log(chalk.gray(`Continuing session with ${messageCount} message(s)`));
     }
-  } else {
-    session = createNewSession(currentProfileName, agentName);
+    if (interactiveOptions.debug) {
+      console.log(chalk.gray(`Session ID: ${sessionId}`));
+    }
+  } catch {
+    // Session doesn't exist, create new one for this agent
+    session = createAgentSession(agentName, currentProfileName);
+    if (interactiveOptions.debug) {
+      console.log(chalk.gray(`Created new session: ${sessionId}`));
+    }
   }
 
   // If prompt provided, run single execution
@@ -96,14 +135,11 @@ export async function runCommand(
     // Run interactive mode
     await startInteractive(model, interactiveOptions, session);
   }
-
-  // Update current session
-  await configManager.setCurrentSession(session.id);
 }
 
-function createNewSession(profileName: string, agentName: string | null = null): Session {
+function createAgentSession(agentName: string, profileName: string): Session {
   return {
-    id: `session-${Date.now()}`,
+    id: `session-${agentName}`,
     agentName,
     profileName,
     messages: [],
@@ -128,8 +164,6 @@ async function runSinglePrompt(
   const endpoint = await configManager2.getLlamaCppEndpoint();
   
   const client = new DockerAIClient(endpoint);
-  const mcpManager = new MCPManager();
-  const toolManager = new ToolManager(mcpManager);
 
   // Load agent and profile for system prompt
   const currentAgentName = await configManager2.getCurrentAgent();
@@ -144,9 +178,6 @@ async function runSinglePrompt(
     content: prompt,
   };
   session.messages.push(userMessage);
-
-  // Get available tools
-  const tools = await toolManager.getAvailableTools();
 
   // Build system prompt with agent and user attributes
   const baseSystemPrompt = agent?.systemPrompt || 'You are a helpful AI assistant.';
@@ -169,13 +200,11 @@ async function runSinglePrompt(
   if (options.debug) {
     console.log(chalk.gray(`Model: ${options.model}`));
     console.log(chalk.gray(`Endpoint: ${endpoint}`));
-    console.log(chalk.gray(`Tools: ${tools.length}`));
     console.log(chalk.gray(''));
   }
 
   try {
     let assistantMessage = '';
-    let toolCalls: any[] = [];
 
     const streamHandler = new StreamHandler({
       onToken: (token: string) => {
@@ -185,16 +214,11 @@ async function runSinglePrompt(
       onDone: () => {
         process.stdout.write('\n');
       },
-      onToolCalls: (calls: any[]) => {
-        toolCalls = calls;
-      },
     });
 
     const stream = client.chatCompletionStream({
       model: options.model,
       messages,
-      tools: tools.length > 0 ? tools : undefined,
-      tool_choice: options.toolChoice as any,
       max_tokens: options.maxTokens,
       temperature: options.temperature,
       top_p: options.topP,
@@ -212,17 +236,8 @@ async function runSinglePrompt(
       content: assistantMessage,
     };
 
-    if (toolCalls.length > 0) {
-      message.tool_calls = toolCalls;
-    }
-
     session.messages.push(message);
     session.updatedAt = new Date().toISOString();
-
-    // Handle tool calls if any
-    if (toolCalls.length > 0 && options.debug) {
-      console.log(chalk.gray(`\n(Tool calls detected but not executed in single-prompt mode)`));
-    }
 
     // Save session
     await storage.saveSession(session);

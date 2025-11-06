@@ -61,13 +61,6 @@ SLASH COMMANDS (executed by interactive loop)
 - `/temperature <float>` - set the models temperature for future calls
 - `/top_p <float>` - set the models top p for future calls
 - `/top_n <float>` - set the models top n for future calls
-- `/mcp-server enable <name>` - enables an mcp server for future calls
-- `/mcp-server disable <name>` - disables an mcp server for future calls
-- `/tool enable <name>` - enables a tool in future calls
-- `/tool disable <name>` - disables a tool in future calls
-- `/tool-choice <choice>` - sets tool choice for future calls
-- `/tool-call-mode <mode>` - sets tool call mode for future calls
-- `/thinking <boolean>` - sets thinking mode for future calls
 - `/debug <boolean>` - sets debug mode for future calls
 - `/quit`, `/q`, `/exit` `/e`, `/x` - exit the interactive session
 

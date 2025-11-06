@@ -4,8 +4,6 @@ export interface Agent {
   name: string;
   model: string;
   systemPrompt: string;
-  tools: string[];
-  mcpServers: string[];
   modelParams: ModelParams;
   attributes: Record<string, any>;
   createdAt: string;

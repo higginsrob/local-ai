@@ -7,11 +7,6 @@ export interface RunOptions {
   temperature?: string;
   topP?: string;
   topN?: string;
-  mcpServers?: string;
-  tools?: string;
-  toolChoice?: string;
-  toolCallMode?: 'native' | 'prompt';
-  thinking?: boolean;
   debug?: boolean;
 }
 
@@ -22,11 +17,6 @@ export interface InteractiveOptions {
   temperature: number;
   topP: number;
   topN: number;
-  mcpServers: string[];
-  tools: string[];
-  toolChoice?: string;
-  toolCallMode: 'native' | 'prompt';
-  thinking: boolean;
   debug: boolean;
 }
 
@@ -34,5 +24,8 @@ export interface SlashCommandResult {
   exit?: boolean;
   settings?: Partial<InteractiveOptions>;
   session?: Session;
+  modelReloadRequired?: boolean;
+  switchToAgent?: string;
+  switchToMeeting?: string[];
 }
 

@@ -342,7 +342,7 @@ Tests cover:
 Enable debug mode to see the system prompt:
 
 ```bash
-ai run llama3 "test" --debug
+ai run ai/llama3.2:latest "test" --debug
 ```
 
 This shows:
@@ -407,5 +407,6 @@ Profile:
 - `src/lib/prompt-builder.ts` - Implementation
 - `tests/lib/prompt-builder.test.ts` - Test suite
 - `docs/EDIT_COMMAND.md` - Editing configurations
+
 
 
